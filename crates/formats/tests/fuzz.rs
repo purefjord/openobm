@@ -6,7 +6,7 @@
 //! This is the cheap, in-process complement to `cargo fuzz`; the same entry
 //! points (`parse_jtm`, `parse_lang`) are the libfuzzer targets under `fuzz/`.
 
-use formats::{parse_jtm, parse_lang};
+use formats::{parse_jtm, parse_lang, parse_scr, ScriptVm};
 use proptest::prelude::*;
 
 proptest! {
@@ -23,6 +23,17 @@ proptest! {
         count in 0usize..400,
     ) {
         let _ = parse_lang(&data, count);
+    }
+
+    #[test]
+    fn parse_scr_and_vm_never_panic(data in proptest::collection::vec(any::<u8>(), 0..512)) {
+        if let Ok(program) = parse_scr(&data) {
+            // Tracing every entry must never panic or loop unboundedly.
+            let mut vm = ScriptVm::new(&program);
+            for id in 0u8..=255 {
+                let _ = vm.trace_entry(id, 256);
+            }
+        }
     }
 }
 

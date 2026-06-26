@@ -9,7 +9,7 @@
 //! original binary is the oracle's job (see crates/eso-tools + oracle/); once
 //! oracle fixtures exist, `tests/oracle_match.rs` diffs the canonical dumps.
 
-use eso_tools::{dump_lang, summarize_jtm};
+use eso_tools::{dump_lang, scr_coverage, summarize_jtm};
 use formats::AssetStore;
 
 fn assets() -> AssetStore {
@@ -33,4 +33,10 @@ fn all_jtm_decode_and_match_snapshot() {
 fn all_lang_decode_and_match_snapshot() {
     let dump = dump_lang(&assets(), &[]).expect("all lang files decode");
     insta::assert_snapshot!("lang_dump", dump);
+}
+
+#[test]
+fn scr_coverage_snapshot() {
+    let report = scr_coverage(&assets()).expect("all .scr scripts disassemble");
+    insta::assert_snapshot!("scr_coverage", report);
 }

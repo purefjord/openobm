@@ -13,7 +13,7 @@
 //!   java OracleDump jtm  ../assets > ../tests/fixtures/oracle/jtm_canonical.txt
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
-use eso_tools::{dump_jtm, dump_lang};
+use eso_tools::{dump_jtm, dump_lang, dump_scr, dump_scr_trace};
 use formats::AssetStore;
 
 fn assets() -> AssetStore {
@@ -59,4 +59,16 @@ fn jtm_matches_oracle() {
 fn lang_matches_oracle() {
     let rust = dump_lang(&assets(), &[]).expect("rust lang dump");
     assert_identical(&rust, &oracle("lang_canonical.txt"), "lang");
+}
+
+#[test]
+fn scr_loader_matches_oracle() {
+    let rust = dump_scr(&assets(), &[]).expect("rust scr dump");
+    assert_identical(&rust, &oracle("scr_canonical.txt"), "scr");
+}
+
+#[test]
+fn scr_trace_startup_matches_oracle() {
+    let rust = dump_scr_trace(&assets(), "/startup.scr", 1, 4096).expect("rust scr trace");
+    assert_identical(&rust, &oracle("scr_trace_startup.txt"), "scr-trace");
 }

@@ -1,0 +1,61 @@
+---
+source: crates/eso-tools/tests/golden.rs
+expression: report
+---
+# scr-coverage  scripts=32  opcodes_decoded=0..=78  exercised=54/79  unknown_opcode_hits=0
+not_exercised_by_entry1: 0 1 4 5 6 13 14 24 28 30 31 33 35 38 48 52 54 55 57 61 62 63 65 68 70
+op 2: 178 uses
+op 3: 8 uses
+op 7: 2 uses
+op 8: 28 uses
+op 9: 4 uses
+op 10: 5 uses
+op 11: 35 uses
+op 12: 30 uses
+op 15: 186 uses
+op 16: 3 uses
+op 17: 62 uses
+op 18: 40 uses
+op 19: 49 uses
+op 20: 3 uses
+op 21: 34 uses
+op 22: 2 uses
+op 23: 146 uses
+op 25: 8 uses
+op 26: 33 uses
+op 27: 2 uses
+op 29: 6 uses
+op 32: 7 uses
+op 34: 144 uses
+op 36: 5 uses
+op 37: 4 uses
+op 39: 20 uses
+op 40: 32 uses
+op 41: 24 uses
+op 42: 34 uses
+op 43: 2 uses
+op 44: 1 uses
+op 45: 10 uses
+op 46: 8 uses
+op 47: 4 uses
+op 49: 40 uses
+op 50: 68 uses
+op 51: 3 uses
+op 53: 86 uses
+op 56: 20 uses
+op 58: 47 uses
+op 59: 6 uses
+op 60: 1 uses
+op 64: 17 uses
+op 66: 1 uses
+op 67: 44 uses
+op 69: 15 uses
+op 71: 22 uses
+op 72: 661 uses
+op 73: 30 uses
+op 74: 30 uses
+op 75: 11 uses
+op 76: 31 uses
+op 77: 1 uses
+op 78: 5 uses
+note: operand decoding is complete for all opcodes; opcode *side effects* are deferred past M3 (skeleton).
