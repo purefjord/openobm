@@ -103,6 +103,13 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   transcription-only oracle could not — op 72 is *free cached graphics*, not
   *load*. (Full opcode side effects into actor/world state remain future work;
   per-entry execution is deterministic, so decode order is run order.)
+- **M8 (in progress)** — actors/stats: `actor.rs` ports `j.java`'s actor fields
+  (defaults from the source initializers) and the deterministic health/fatigue
+  derivation `h.java` recomputes everywhere (`max_health = level*4 + (str+O)*2 +
+  endurance*2 + I`, `rate = 40000/max`, likewise fatigue). Unit-tested from the
+  exact source formulas. Combat resolution, inventory item-application, and
+  `h.f`'s class/level bonus tables (coupled to the `.scr` stat tables) are the
+  remaining M8 slices.
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

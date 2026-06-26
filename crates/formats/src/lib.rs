@@ -14,6 +14,7 @@
 //! - [`jtm`]      — `.jtm` RLE tile maps.
 //! - [`asset`]    — resource loading by original `/leading-slash` paths.
 
+pub mod actor;
 pub mod asset;
 pub mod cml;
 pub mod iso;
@@ -24,6 +25,7 @@ pub mod save;
 pub mod scr;
 pub mod vm;
 
+pub use actor::Actor;
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};
 pub use iso::{screen_to_world, world_to_screen, Vec2i};
