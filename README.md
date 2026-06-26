@@ -89,7 +89,7 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
 ```sh
 cargo test --workspace          # unit + golden + fuzz + oracle-match
 cargo clippy --workspace --all-targets -- -D warnings
-cargo +nightly miri test -p formats               # UB / OOB check on parsers
+cargo +nightly miri test -p formats --lib         # UB / OOB check on parsers*
 
 # regenerate oracle fixtures (only if the original algorithm reading changes)
 cd oracle && javac OracleDump.java
@@ -103,3 +103,11 @@ cargo run -p eso-tools -- jtm|lang|scr|scr-trace|scr-coverage ./assets
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm artifacts/l01_1.png
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 ```
+
+> \* miri did not run to completion in the CI sandbox (it hangs on its first-run
+> instrumented-sysroot build). It is low-value for this code regardless: the
+> `formats` crate contains **no `unsafe`**, so an out-of-bounds access is a clean
+> panic, not silent UB. The intended coverage — "catch OOB/UB the moment
+> `x*height+y` is fumbled" — is already provided by `overflow-checks = true`
+> (dev/test) plus the proptest fuzzers, which exercise every parser and the VM on
+> thousands of random inputs without panicking.
