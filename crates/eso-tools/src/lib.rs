@@ -83,6 +83,31 @@ pub fn summarize_cml(store: &AssetStore) -> Result<String> {
     Ok(out)
 }
 
+/// Flat `.jtm` layer dump matching the FreeJ2ME `Instrument.dumpJtm` format:
+/// `layers=N` then each layer's bytes as space-joined unsigned decimals, in
+/// storage order (base layer first). This is the orientation-independent form
+/// used to diff our parse against the *live* runtime's in-memory grid.
+pub fn dump_jtm_flat(store: &AssetStore, name: &str) -> Result<String> {
+    let res = if name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("/{name}")
+    };
+    let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
+    let map = parse_jtm(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
+    let mut out = String::new();
+    writeln!(out, "layers={}", map.layers.len())?;
+    for layer in &map.layers {
+        let row = layer
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        writeln!(out, "{row}")?;
+    }
+    Ok(out)
+}
+
 /// Compact `.jtm` summary for snapshotting: dims + per-layer hash.
 pub fn summarize_jtm(store: &AssetStore) -> Result<String> {
     let mut out = String::new();

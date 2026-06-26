@@ -8,7 +8,8 @@
 
 use anyhow::{bail, Result};
 use eso_tools::{
-    dump_cml, dump_jtm, dump_lang, dump_scr, dump_scr_trace, scr_coverage, summarize_jtm,
+    dump_cml, dump_jtm, dump_jtm_flat, dump_lang, dump_scr, dump_scr_trace, scr_coverage,
+    summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -23,6 +24,10 @@ fn main() -> Result<()> {
     let out = match args[0].as_str() {
         "jtm" => dump_jtm(&store, rest)?,
         "jtm-sum" => summarize_jtm(&store)?,
+        "jtm-flat" => dump_jtm_flat(
+            &store,
+            rest.first().map(String::as_str).unwrap_or("/l01_1.jtm"),
+        )?,
         "cml" => dump_cml(&store, rest)?,
         "scr" => dump_scr(&store, rest)?,
         "scr-coverage" => scr_coverage(&store)?,
