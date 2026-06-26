@@ -1,0 +1,5 @@
+# Keep canonical/oracle fixtures and all text as LF so byte-diffs are stable
+# across platforms (the dumpers emit LF).
+* text=auto eol=lf
+*.png binary
+*.jar binary
