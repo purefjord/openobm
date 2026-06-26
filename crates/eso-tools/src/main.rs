@@ -8,8 +8,8 @@
 
 use anyhow::{bail, Result};
 use eso_tools::{
-    dump_cml, dump_jtm, dump_jtm_flat, dump_lang, dump_scr, dump_scr_trace, scr_coverage,
-    summarize_jtm,
+    dump_cml, dump_jtm, dump_jtm_flat, dump_lang, dump_scr, dump_scr_exec, dump_scr_trace,
+    scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -39,6 +39,15 @@ fn main() -> Result<()> {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4096usize);
             dump_scr_trace(&store, res, entry, cap)?
+        }
+        "scr-exec" => {
+            let res = rest.first().map(String::as_str).unwrap_or("/startup.scr");
+            let entry = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(1u8);
+            let cap = rest
+                .get(2)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4096usize);
+            dump_scr_exec(&store, res, entry, cap)?
         }
         "lang" => {
             let ids = rest

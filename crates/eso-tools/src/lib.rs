@@ -301,6 +301,55 @@ pub fn scr_coverage(store: &AssetStore) -> Result<String> {
     Ok(out)
 }
 
+fn effect_str(e: &formats::Effect) -> String {
+    use formats::{Effect, TextRef};
+    let tr = |t: &TextRef| match t {
+        TextRef::Lang(id) => format!("lang#{id}"),
+        TextRef::Inline(s) => format!("{:?}", s),
+    };
+    match e {
+        Effect::Wait(ms) => format!("Wait {ms}ms"),
+        Effect::Call(id) => format!("Call entry {id}"),
+        Effect::Return => "Return".into(),
+        Effect::ShowText(t) => format!("ShowText {}", tr(t)),
+        Effect::LoadLevel { map, model } => format!("LoadLevel map={map:?} model={model:?}"),
+        Effect::LoadModel(m) => format!("LoadModel {m:?}"),
+        Effect::FreeGraphics(p) => format!("FreeGraphics {p:?}"),
+        Effect::StringAction(s) => format!("StringAction {s:?}"),
+        Effect::Other(op) => format!("op{op}"),
+    }
+}
+
+/// Execute a script entry and dump the resolved semantic effects (load/show/wait
+/// /call/return), with lang references resolved against `lang_0`.
+pub fn dump_scr_exec(store: &AssetStore, res: &str, entry: u8, max_steps: usize) -> Result<String> {
+    let program = parse_scr(&store.load(res).with_context(|| format!("loading {res}"))?)
+        .map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
+    let lang = store
+        .load("/lang_0.txt")
+        .ok()
+        .map(|b| formats::Lang::load_base(&b));
+    let mut vm = ScriptVm::new(&program);
+    let steps = vm
+        .run_entry(entry, max_steps)
+        .map_err(|e| anyhow::anyhow!("executing {res}: {e}"))?;
+
+    let mut out = String::new();
+    writeln!(out, "# exec {res} entry={entry}")?;
+    for (i, s) in steps.iter().enumerate() {
+        let eff = s.effect(lang.as_ref());
+        writeln!(out, "{i} pc={} op={} {}", s.pc, s.opcode, effect_str(&eff))?;
+    }
+    let last = steps.last();
+    let result = match last {
+        Some(s) if matches!(s.kind, StepKind::Unknown) => "unknown_opcode",
+        _ if steps.len() >= max_steps => "step_cap",
+        _ => "stack_empty",
+    };
+    writeln!(out, "result={result} steps={}", steps.len())?;
+    Ok(out)
+}
+
 fn kind_str(k: StepKind) -> String {
     match k {
         StepKind::Normal => "Normal".into(),

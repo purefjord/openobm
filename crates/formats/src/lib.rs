@@ -30,4 +30,4 @@ pub use jtm::{parse_jtm, JtmMap};
 pub use lang::{parse_lang, parse_lang_file, Lang};
 pub use reader::{ParseError, Reader};
 pub use scr::{parse_scr, ScrProgram};
-pub use vm::{ScriptVm, Step, StepKind};
+pub use vm::{Effect, ScriptVm, Step, StepKind, TextRef};

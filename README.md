@@ -93,6 +93,16 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   in the path read was resolved against `g.class` bytecode (`javap -c`). Sprite
   *rendering* (decoding the referenced PNGs + frame placement) is deferred to the
   renderer milestone.
+- **M7** — `.scr` VM execution: the VM now resolves inline strings and emits
+  semantic effects (load level/model, free graphics, show text, wait,
+  call/return) — `startup.scr` executes as: load `/startup.cml`, four 2000ms
+  waits, free the splash graphics, queue `/startup2.scr`, return. Validated
+  against the **real runtime**: a FreeJ2ME resource-load hook (`MIDletLoader` +
+  `-Doracle.reslog`) showed the live boot loads exactly `/startup.cml →
+  /1,2,3,5.png`, which **caught and corrected** a semantic error the
+  transcription-only oracle could not — op 72 is *free cached graphics*, not
+  *load*. (Full opcode side effects into actor/world state remain future work;
+  per-entry execution is deterministic, so decode order is run order.)
 - **M5** — `.scr` data tables materialized: the section sub-parsers now capture
   full row values (actor/item/spell/etc. stats) with each subtype's exact
   signedness, inline-string-pool indexing, and the two global lists (subtype 7's
@@ -120,7 +130,7 @@ java OracleDump scr  ../assets > ../tests/fixtures/oracle/scr_canonical.txt
 java OracleDump scr-trace ../assets /startup.scr 1 > ../tests/fixtures/oracle/scr_trace_startup.txt
 
 # tools
-cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-coverage ./assets
+cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-exec|scr-coverage ./assets
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm artifacts/l01_1.png
 cargo run -p render --bin sprite-shot -- ./assets oh_pc.cml c1.png l01_1.jtm artifacts/pc
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm

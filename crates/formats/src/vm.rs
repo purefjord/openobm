@@ -55,11 +55,55 @@ pub struct Step {
     pub pc: usize,
     /// The opcode.
     pub opcode: u8,
-    /// Numeric operands read (string bytes are skipped, not included; an inline
-    /// string's length appears as the operand that encoded it).
+    /// Numeric operands read (an inline string's length appears as the operand
+    /// that encoded it).
     pub operands: Vec<i32>,
+    /// Inline strings the opcode read (Latin-1), in order. Empty for opcodes
+    /// without inline strings, or when the string is a lang reference.
+    pub strings: Vec<String>,
     /// Classification of the opcode.
     pub kind: StepKind,
+}
+
+/// A piece of text referenced by an opcode: either a `lang_*` id or an inline
+/// string literal embedded in the bytecode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextRef {
+    Lang(u16),
+    Inline(String),
+}
+
+/// The semantic effect of executing an opcode — the "what it does" layer on top
+/// of decoding. Only the opcodes with clear, runtime-independent meaning are
+/// modeled; the rest carry their opcode number (their full side effects belong
+/// to later milestones that build the actor/world/UI state).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Effect {
+    /// op 11 / 64: wait for N ms.
+    Wait(u32),
+    /// op 23: call (push) another script entry.
+    Call(u8),
+    /// op 2: return from the current entry.
+    Return,
+    /// op 3 / 15 / 39 / 53: show dialog/menu text.
+    ShowText(TextRef),
+    /// op 8: load a level's map (`.jtm`) and model (`.cml`).
+    LoadLevel { map: String, model: String },
+    /// op 43: load a `.cml` model (and, transitively, its referenced images).
+    /// Confirmed against the runtime: loading `/startup.cml` pulls in its frames'
+    /// PNGs (`/1.png /2.png /3.png /5.png`; `/4.png` is the loader's skip case).
+    LoadModel(String),
+    /// op 72: free cached graphics whose key starts with the given prefix
+    /// (`g`'s cache-clear). Confirmed against the runtime — these cause *no*
+    /// resource load (which is how the runtime oracle corrected an earlier
+    /// "LoadResource" misreading).
+    FreeGraphics(String),
+    /// op 9 / 29 / 56: a string-bearing UI/system action (set title, load lang,
+    /// queue next script, etc.) — the string is captured; the precise effect is
+    /// deferred.
+    StringAction(String),
+    /// Any other opcode: number + numeric operands (side effect deferred).
+    Other(u8),
 }
 
 /// Highest opcode handled by the dispatch (`e.java` switch goes 0..=78).
@@ -131,17 +175,6 @@ impl ScriptVm {
         Ok((a << 16) | b)
     }
 
-    fn skip(&mut self, len: i32) -> Result<(), ParseError> {
-        let len = usize::try_from(len).map_err(|_| ParseError::Eof)?;
-        let top = self.stack.len() - 1;
-        let pc = self.stack[top].checked_add(len).ok_or(ParseError::Eof)?;
-        if pc > self.code.len() {
-            return Err(ParseError::Eof);
-        }
-        self.stack[top] = pc;
-        Ok(())
-    }
-
     /// Read N u8 operands into `out`.
     fn read_u8s(&mut self, n: usize, out: &mut Vec<i32>) -> Result<(), ParseError> {
         for _ in 0..n {
@@ -151,13 +184,26 @@ impl ScriptVm {
         Ok(())
     }
 
+    /// Read `len` bytes as a Latin-1 string, advancing the PC.
+    fn read_str(&mut self, len: i32) -> Result<String, ParseError> {
+        let len = usize::try_from(len).map_err(|_| ParseError::Eof)?;
+        let top = self.stack.len() - 1;
+        let start = self.stack[top];
+        let end = start.checked_add(len).ok_or(ParseError::Eof)?;
+        let bytes = self.code.get(start..end).ok_or(ParseError::Eof)?;
+        let s: String = bytes.iter().map(|&b| b as char).collect();
+        self.stack[top] = end;
+        Ok(s)
+    }
+
     /// A lang-id reference packs `0xF___`; otherwise the value is an inline
-    /// string length to skip.
-    fn maybe_inline_string(&mut self, n16: i32) -> Result<(), ParseError> {
+    /// string length. Reads and returns the inline string when present.
+    fn maybe_inline_string(&mut self, n16: i32) -> Result<Option<String>, ParseError> {
         if (n16 & 0xF000) != 0xF000 {
-            self.skip(n16)?;
+            Ok(Some(self.read_str(n16)?))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 
     /// Execute one opcode, returning the decoded [`Step`]. Mirrors the operand
@@ -172,13 +218,16 @@ impl ScriptVm {
         }
 
         let mut ops: Vec<i32> = Vec::new();
+        let mut strs: Vec<String> = Vec::new();
         let kind = match opcode {
             0 | 1 => StepKind::Unknown,
             2 => StepKind::Return,
             3 => {
                 let n16 = self.u16()?;
                 ops.push(n16);
-                self.maybe_inline_string(n16)?;
+                if let Some(s) = self.maybe_inline_string(n16)? {
+                    strs.push(s);
+                }
                 StepKind::VisibleText
             }
             4 => {
@@ -192,16 +241,16 @@ impl ScriptVm {
             8 => {
                 let l1 = self.u8()?;
                 ops.push(l1);
-                self.skip(l1)?;
+                strs.push(self.read_str(l1)?);
                 let l2 = self.u8()?;
                 ops.push(l2);
-                self.skip(l2)?;
+                strs.push(self.read_str(l2)?);
                 StepKind::VisibleLoad
             }
             9 => {
                 let l = self.u8()?;
                 ops.push(l);
-                self.skip(l)?;
+                strs.push(self.read_str(l)?);
                 StepKind::Normal
             }
             10 => {
@@ -230,7 +279,9 @@ impl ScriptVm {
                 let n16 = self.u16()?;
                 ops.push(n16);
                 if n16 != 0 {
-                    self.maybe_inline_string(n16)?;
+                    if let Some(s) = self.maybe_inline_string(n16)? {
+                        strs.push(s);
+                    }
                 }
                 ops.push(self.u8()?);
                 ops.push(self.u8()?);
@@ -296,7 +347,7 @@ impl ScriptVm {
             29 => {
                 let l = self.u8()?;
                 ops.push(l);
-                self.skip(l)?;
+                strs.push(self.read_str(l)?);
                 StepKind::Normal
             }
             32 => {
@@ -336,7 +387,9 @@ impl ScriptVm {
             39 => {
                 let n16 = self.u16()?;
                 ops.push(n16);
-                self.maybe_inline_string(n16)?;
+                if let Some(s) = self.maybe_inline_string(n16)? {
+                    strs.push(s);
+                }
                 self.read_u8s(3, &mut ops)?;
                 StepKind::VisibleText
             }
@@ -349,7 +402,7 @@ impl ScriptVm {
             43 => {
                 let l = self.u8()?;
                 ops.push(l);
-                self.skip(l)?;
+                strs.push(self.read_str(l)?);
                 StepKind::Normal
             }
             44 | 45 => StepKind::Normal,
@@ -386,14 +439,16 @@ impl ScriptVm {
                 ops.push(self.u8()?);
                 let n16 = self.u16()?;
                 ops.push(n16);
-                self.maybe_inline_string(n16)?;
+                if let Some(s) = self.maybe_inline_string(n16)? {
+                    strs.push(s);
+                }
                 StepKind::VisibleText
             }
             54 | 55 => StepKind::Normal,
             56 => {
                 let l = self.u8()?;
                 ops.push(l);
-                self.skip(l)?;
+                strs.push(self.read_str(l)?);
                 ops.push(self.u8()?);
                 StepKind::Normal
             }
@@ -414,7 +469,9 @@ impl ScriptVm {
             66 => {
                 let n16 = self.u16()?;
                 ops.push(n16);
-                self.maybe_inline_string(n16)?;
+                if let Some(s) = self.maybe_inline_string(n16)? {
+                    strs.push(s);
+                }
                 StepKind::Normal
             }
             67 => {
@@ -442,7 +499,7 @@ impl ScriptVm {
             72 => {
                 let len = self.u16()?;
                 ops.push(len);
-                self.skip(len)?;
+                strs.push(self.read_str(len)?);
                 StepKind::Normal
             }
             73 | 74 => StepKind::Normal,
@@ -473,6 +530,7 @@ impl ScriptVm {
             pc,
             opcode,
             operands: ops,
+            strings: strs,
             kind,
         })
     }
@@ -508,6 +566,51 @@ impl ScriptVm {
             }
         }
         Ok(steps)
+    }
+
+    /// Execute an entry to completion (empty call stack / unknown opcode /
+    /// `max_steps`), returning each step. Unlike a decode trace, the steps carry
+    /// captured inline strings, so [`Step::effect`] yields full semantic effects.
+    /// Per-entry execution is deterministic (no data-dependent branches in the
+    /// bytecode), so this is the script's actual run for the entry.
+    pub fn run_entry(&mut self, entry: u8, max_steps: usize) -> Result<Vec<Step>, ParseError> {
+        self.trace_entry_opts(entry, max_steps, false)
+    }
+}
+
+impl Step {
+    /// The semantic [`Effect`] of this executed step. If `lang` is given, lang
+    /// text references are resolved to their string; otherwise they stay
+    /// [`TextRef::Lang`].
+    pub fn effect(&self, lang: Option<&crate::lang::Lang>) -> Effect {
+        let s = |i: usize| self.strings.get(i).cloned().unwrap_or_default();
+        let op = |i: usize| self.operands.get(i).copied().unwrap_or(0);
+        let text_ref = |n16: i32, inline_idx: usize| -> TextRef {
+            if (n16 & 0xF000) == 0xF000 {
+                let id = (n16 & 0xFFF) as u16;
+                match lang {
+                    Some(l) => TextRef::Inline(l.get(id).to_string()),
+                    None => TextRef::Lang(id),
+                }
+            } else {
+                TextRef::Inline(self.strings.get(inline_idx).cloned().unwrap_or_default())
+            }
+        };
+        match self.opcode {
+            2 => Effect::Return,
+            11 => Effect::Wait(op(0).max(0) as u32),
+            23 => Effect::Call(op(0) as u8),
+            3 | 15 | 39 => Effect::ShowText(text_ref(op(0), 0)),
+            53 => Effect::ShowText(text_ref(op(2), 0)),
+            8 => Effect::LoadLevel {
+                map: s(0),
+                model: s(1),
+            },
+            43 => Effect::LoadModel(s(0)),
+            72 => Effect::FreeGraphics(s(0)),
+            9 | 29 | 56 => Effect::StringAction(s(0)),
+            other => Effect::Other(other),
+        }
     }
 }
 
@@ -573,5 +676,35 @@ mod tests {
     fn truncated_code_is_error_not_panic() {
         let mut vm = vm_with_code(vec![3, 0x00], 0); // u16 operand truncated
         assert_eq!(vm.trace_entry(1, 16).err(), Some(ParseError::Eof));
+    }
+
+    #[test]
+    fn execute_resolves_effects_and_strings() {
+        // op 72 free "/x.png" (len 6); op 8 load map "/m.jtm"(6)+model "/o.cml"(6);
+        // op 11 wait 0x0064; op 3 lang ref 0xF002; op 2 return.
+        let mut code = vec![72, 0x00, 0x06];
+        code.extend_from_slice(b"/x.png");
+        code.push(8);
+        code.push(6);
+        code.extend_from_slice(b"/m.jtm");
+        code.push(6);
+        code.extend_from_slice(b"/o.cml");
+        code.extend_from_slice(&[11, 0x00, 0x64, 3, 0xF0, 0x02, 2]);
+        let mut vm = vm_with_code(code, 0);
+        let steps = vm.run_entry(1, 64).unwrap();
+        let effects: Vec<Effect> = steps.iter().map(|s| s.effect(None)).collect();
+        assert_eq!(
+            effects,
+            vec![
+                Effect::FreeGraphics("/x.png".into()),
+                Effect::LoadLevel {
+                    map: "/m.jtm".into(),
+                    model: "/o.cml".into()
+                },
+                Effect::Wait(100),
+                Effect::ShowText(TextRef::Lang(2)),
+                Effect::Return,
+            ]
+        );
     }
 }
