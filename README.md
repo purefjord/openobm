@@ -48,10 +48,12 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
-> transcription *is* equivalent ground truth. The FreeJ2ME-instrumented original
-> would only be needed where the runtime is in the loop (game-state-dependent
-> branches in later script entries); `oracle/Oblivion.jar` is built and ready for
-> that when those milestones arrive.
+> transcription *is* equivalent ground truth. For runtime-coupled behavior
+> (M7+), a second oracle runs the **actual `Oblivion.jar` on FreeJ2ME, headless**
+> — verified booting through the `startup.scr` splash to the title screen from
+> the original bytecode (see `oracle/README.md` and `artifacts/real_20s.png`).
+> This is the foundation for byte-diffing runtime behavior (opcode execution
+> traces, save blobs) and for screenshot parity.
 
 ## Verified corrections to `spec.txt`
 
