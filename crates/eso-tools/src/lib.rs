@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 
 use anyhow::{Context, Result};
 use formats::vm::StepKind;
-use formats::{parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm};
+use formats::{parse_cml, parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm};
 
 /// FNV-1a 64-bit hash — small, dependency-free, deterministic across platforms.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -56,6 +56,33 @@ pub fn dump_jtm(store: &AssetStore, names: &[String]) -> Result<String> {
     Ok(out)
 }
 
+/// Compact `.cml` summary for snapshotting: per-file record/group/frame counts,
+/// bytes consumed, and a hash of the full canonical dump.
+pub fn summarize_cml(store: &AssetStore) -> Result<String> {
+    let mut out = String::new();
+    for res in store.list("cml")? {
+        let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
+        let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
+        let groups: usize = cml.records.iter().map(|r| r.anim_groups.len()).sum();
+        let frames: usize = cml
+            .records
+            .iter()
+            .flat_map(|r| r.anim_groups.iter())
+            .map(|g| g.frames.len())
+            .sum();
+        let one = dump_cml(store, std::slice::from_ref(&res))?;
+        writeln!(
+            out,
+            "{res}: records={} groups={groups} frames={frames} consumed={}/{} {:016x}",
+            cml.records.len(),
+            cml.consumed,
+            bytes.len(),
+            fnv1a(one.as_bytes())
+        )?;
+    }
+    Ok(out)
+}
+
 /// Compact `.jtm` summary for snapshotting: dims + per-layer hash.
 pub fn summarize_jtm(store: &AssetStore) -> Result<String> {
     let mut out = String::new();
@@ -92,6 +119,55 @@ pub fn dump_lang(store: &AssetStore, ids: &[u8]) -> Result<String> {
         writeln!(out, "# lang {res} entries={}", table.len())?;
         for (lang_id, text) in &table {
             writeln!(out, "{lang_id}\t{}", escape(text))?;
+        }
+    }
+    Ok(out)
+}
+
+fn flags_str(f: &[i32; 10]) -> String {
+    f.iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Canonical dump of `.cml` models (byte-comparable with the oracle).
+pub fn dump_cml(store: &AssetStore, names: &[String]) -> Result<String> {
+    let resources = pick(store, names, "cml")?;
+    let mut out = String::new();
+    for res in resources {
+        let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
+        let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
+        writeln!(out, "# cml {res}")?;
+        writeln!(
+            out,
+            "prefix={} records={} consumed={}",
+            escape(&cml.prefix),
+            cml.records.len(),
+            cml.consumed
+        )?;
+        for r in &cml.records {
+            writeln!(
+                out,
+                "rec id={} eid={} path={} static={} skipped={} flags={} boxes={} anim={}",
+                r.frame_id,
+                r.effective_id,
+                escape(&r.path),
+                r.is_static,
+                r.skipped,
+                flags_str(&r.flags),
+                r.boxes.len(),
+                r.anim_groups.len()
+            )?;
+            for (a, b) in &r.boxes {
+                writeln!(out, "box {a} {b}")?;
+            }
+            for g in &r.anim_groups {
+                writeln!(out, "grp {} frames={}", flags_str(&g.flags), g.frames.len())?;
+                for f in &g.frames {
+                    writeln!(out, "frm {}", flags_str(f))?;
+                }
+            }
         }
     }
     Ok(out)

@@ -6,7 +6,7 @@
 //! This is the cheap, in-process complement to `cargo fuzz`; the same entry
 //! points (`parse_jtm`, `parse_lang`) are the libfuzzer targets under `fuzz/`.
 
-use formats::{parse_jtm, parse_lang, parse_scr, ScriptVm};
+use formats::{parse_cml, parse_jtm, parse_lang, parse_scr, ScriptVm};
 use proptest::prelude::*;
 
 proptest! {
@@ -23,6 +23,13 @@ proptest! {
         count in 0usize..400,
     ) {
         let _ = parse_lang(&data, count);
+    }
+
+    #[test]
+    fn parse_cml_never_panics(data in proptest::collection::vec(any::<u8>(), 0..512)) {
+        if let Ok(cml) = parse_cml(&data) {
+            prop_assert!(cml.consumed <= data.len());
+        }
     }
 
     #[test]

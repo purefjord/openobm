@@ -15,6 +15,7 @@
 //! - [`asset`]    — resource loading by original `/leading-slash` paths.
 
 pub mod asset;
+pub mod cml;
 pub mod iso;
 pub mod jtm;
 pub mod lang;
@@ -23,6 +24,7 @@ pub mod scr;
 pub mod vm;
 
 pub use asset::AssetStore;
+pub use cml::{parse_cml, Cml, CmlRecord};
 pub use iso::{screen_to_world, world_to_screen, Vec2i};
 pub use jtm::{parse_jtm, JtmMap};
 pub use lang::{parse_lang, parse_lang_file, Lang};

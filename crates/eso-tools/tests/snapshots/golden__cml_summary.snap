@@ -1,0 +1,25 @@
+---
+source: crates/eso-tools/tests/golden.rs
+expression: summary
+---
+/l01_1.cml: records=3 groups=40 frames=40 consumed=558/558 87a2e9c5284838f2
+/l02_l2.cml: records=3 groups=27 frames=27 consumed=383/383 3a4139dd3c013261
+/l03_l3.cml: records=3 groups=49 frames=49 consumed=698/698 d9c465c7670f57bd
+/l05_l5.cml: records=2 groups=26 frames=26 consumed=383/383 238dabcedefd59f3
+/l08_l8.cml: records=2 groups=23 frames=23 consumed=332/332 695a8dd12fad7970
+/l09_l9.cml: records=2 groups=38 frames=38 consumed=538/538 69a294a0e495f5ef
+/l11_l11.cml: records=3 groups=47 frames=47 consumed=657/657 5fc0684a769d66f0
+/l12_l12.cml: records=3 groups=30 frames=30 consumed=425/425 76daa56069723cf3
+/l13_clrl.cml: records=3 groups=16 frames=16 consumed=258/258 03e21a6d965aff85
+/l14_l14.cml: records=2 groups=21 frames=21 consumed=308/308 2623b7a77ba46372
+/oh_deadroth.cml: records=2 groups=18 frames=30 consumed=386/386 49fd06ec6e042409
+/oh_dremora.cml: records=2 groups=18 frames=30 consumed=389/389 028db207ebbb5773
+/oh_ghost.cml: records=2 groups=18 frames=30 consumed=388/388 a5924be1cc86539c
+/oh_liches.cml: records=2 groups=18 frames=30 consumed=372/372 5eb79f91725acbfd
+/oh_magic.cml: records=1 groups=15 frames=30 consumed=356/356 27c4167127553eb5
+/oh_menu.cml: records=1 groups=20 frames=20 consumed=271/271 8b1c94a0164a191c
+/oh_ogre.cml: records=2 groups=18 frames=30 consumed=378/378 e1238be9c4cca6ea
+/oh_pc.cml: records=2 groups=30 frames=42 consumed=552/552 17ddcc0bc7f22ae3
+/oh_scamp.cml: records=2 groups=18 frames=30 consumed=378/378 7fa37eb877ed9584
+/startup.cml: records=5 groups=0 frames=0 consumed=66/66 0e6bd5e370e967c3
+/startup2.cml: records=1 groups=23 frames=23 consumed=310/310 4050e981b6933d7d

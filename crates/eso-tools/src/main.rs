@@ -7,7 +7,9 @@
 //!   eso-dump jtm-sum <assets_dir>                   # compact per-layer hashes
 
 use anyhow::{bail, Result};
-use eso_tools::{dump_jtm, dump_lang, dump_scr, dump_scr_trace, scr_coverage, summarize_jtm};
+use eso_tools::{
+    dump_cml, dump_jtm, dump_lang, dump_scr, dump_scr_trace, scr_coverage, summarize_jtm,
+};
 use formats::AssetStore;
 
 fn main() -> Result<()> {
@@ -21,6 +23,7 @@ fn main() -> Result<()> {
     let out = match args[0].as_str() {
         "jtm" => dump_jtm(&store, rest)?,
         "jtm-sum" => summarize_jtm(&store)?,
+        "cml" => dump_cml(&store, rest)?,
         "scr" => dump_scr(&store, rest)?,
         "scr-coverage" => scr_coverage(&store)?,
         "scr-trace" => {

@@ -16,6 +16,7 @@ crates/
     iso.rs       world<->screen isometric transforms (verified shifts)
     lang.rs      lang_*.txt string tables
     jtm.rs       .jtm RLE tile maps
+    cml.rs       .cml model/animation/sprite tables
     scr.rs       .scr script loader (entry table + data sections + bytecode)
     vm.rs        .scr bytecode VM skeleton (79-opcode decoder + control flow)
   eso-tools/   `eso-dump` — byte-comparable canonical dumps + scr-coverage
@@ -44,6 +45,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `lang_*.txt` | all 13 tables, 546 entries | byte-identical |
 | `.scr` loader | all 32 scripts (entries, code_start, code hash, sections) | byte-identical |
 | `.scr` opcode trace | `startup.scr` entry 1, full | byte-identical |
+| `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. The FreeJ2ME-instrumented original
@@ -83,6 +85,12 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   opcode-for-opcode; `scr-coverage` disassembles entry 1 of all 32 scripts and
   reaches 54/79 opcodes with **zero unknown-opcode hits**. Opcode *side effects*
   (rendering, actor mutation, resource loading) are deferred to later milestones.
+- **M4** — `.cml` model/animation parser (`g.java`/`d.java`): path prefix, frame
+  records, bit-flag blocks, bounding boxes, animation groups/frames. All 21 files
+  consume exactly to EOF and **match the oracle byte-for-byte**. A decompiler trap
+  in the path read was resolved against `g.class` bytecode (`javap -c`). Sprite
+  *rendering* (decoding the referenced PNGs + frame placement) is deferred to the
+  renderer milestone.
 
 ## Build & test
 
@@ -99,7 +107,7 @@ java OracleDump scr  ../assets > ../tests/fixtures/oracle/scr_canonical.txt
 java OracleDump scr-trace ../assets /startup.scr 1 > ../tests/fixtures/oracle/scr_trace_startup.txt
 
 # tools
-cargo run -p eso-tools -- jtm|lang|scr|scr-trace|scr-coverage ./assets
+cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-coverage ./assets
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm artifacts/l01_1.png
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 ```
