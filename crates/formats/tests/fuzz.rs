@@ -6,7 +6,7 @@
 //! This is the cheap, in-process complement to `cargo fuzz`; the same entry
 //! points (`parse_jtm`, `parse_lang`) are the libfuzzer targets under `fuzz/`.
 
-use formats::{parse_cml, parse_jtm, parse_lang, parse_scr, ScriptVm};
+use formats::{parse_cml, parse_jtm, parse_lang, parse_save, parse_scr, serialize_save, ScriptVm};
 use proptest::prelude::*;
 
 proptest! {
@@ -29,6 +29,16 @@ proptest! {
     fn parse_cml_never_panics(data in proptest::collection::vec(any::<u8>(), 0..512)) {
         if let Ok(cml) = parse_cml(&data) {
             prop_assert!(cml.consumed <= data.len());
+        }
+    }
+
+    #[test]
+    fn parse_save_never_panics_and_reserializes(data in proptest::collection::vec(any::<u8>(), 0..512)) {
+        // Any blob the parser accepts must re-serialize to a prefix of the input
+        // (it consumes a well-formed record from the front) and round-trip stably.
+        if let Ok(save) = parse_save(&data) {
+            let bytes = serialize_save(&save);
+            prop_assert_eq!(parse_save(&bytes).unwrap(), save);
         }
     }
 

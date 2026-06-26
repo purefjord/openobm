@@ -20,6 +20,7 @@ pub mod iso;
 pub mod jtm;
 pub mod lang;
 pub mod reader;
+pub mod save;
 pub mod scr;
 pub mod vm;
 
@@ -29,5 +30,6 @@ pub use iso::{screen_to_world, world_to_screen, Vec2i};
 pub use jtm::{parse_jtm, JtmMap};
 pub use lang::{parse_lang, parse_lang_file, Lang};
 pub use reader::{ParseError, Reader};
+pub use save::{parse_save, serialize_save, Save};
 pub use scr::{parse_scr, ScrProgram};
 pub use vm::{Effect, ScriptVm, Step, StepKind, TextRef};

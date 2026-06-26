@@ -249,6 +249,41 @@ pub fn dump_scr(store: &AssetStore, names: &[String]) -> Result<String> {
     Ok(out)
 }
 
+/// Round-trip an `ESO` save blob: parse it, re-serialize, and report whether the
+/// bytes are identical (the key validation against a real, game-written blob),
+/// plus a decoded summary. `path` is a file containing the raw record bytes
+/// (captured via the FreeJ2ME `-Doracle.savelog` hook).
+pub fn save_roundtrip(path: &str) -> Result<String> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {path}"))?;
+    let save = formats::parse_save(&bytes).map_err(|e| anyhow::anyhow!("parsing {path}: {e}"))?;
+    let reser = formats::serialize_save(&save);
+    let identical = reser == bytes;
+    let mut out = String::new();
+    writeln!(out, "# save {path} ({} bytes)", bytes.len())?;
+    writeln!(out, "round_trip_identical={identical}")?;
+    writeln!(
+        out,
+        "flags={:?} bool_o={} player={}",
+        save.flags,
+        save.bool_o,
+        save.player.is_some()
+    )?;
+    if let Some(p) = &save.player {
+        writeln!(out, "player_name={:?}", String::from_utf8_lossy(&p.name))?;
+        writeln!(
+            out,
+            "actor model={:?} items={}",
+            String::from_utf8_lossy(&p.actor.model_name),
+            p.actor.items.len()
+        )?;
+    }
+    if !identical {
+        let n = reser.iter().zip(&bytes).take_while(|(a, b)| a == b).count();
+        writeln!(out, "first_diff_at_byte={n} (reser_len={})", reser.len())?;
+    }
+    Ok(out)
+}
+
 /// `scr-coverage` report: which opcodes the VM decodes, and which are actually
 /// exercised by the real scripts (by disassembling entry 1 of every `.scr`,
 /// following calls/returns). The decoder covers the full `0..=78` opcode space;

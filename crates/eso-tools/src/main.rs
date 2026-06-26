@@ -9,7 +9,7 @@
 use anyhow::{bail, Result};
 use eso_tools::{
     dump_cml, dump_jtm, dump_jtm_flat, dump_lang, dump_scr, dump_scr_exec, dump_scr_trace,
-    scr_coverage, summarize_jtm,
+    save_roundtrip, scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -31,6 +31,8 @@ fn main() -> Result<()> {
         "cml" => dump_cml(&store, rest)?,
         "scr" => dump_scr(&store, rest)?,
         "scr-coverage" => scr_coverage(&store)?,
+        // save-roundtrip takes a blob file path as the second arg (not an assets dir).
+        "save-roundtrip" => save_roundtrip(&args[1])?,
         "scr-trace" => {
             let res = rest.first().map(String::as_str).unwrap_or("/startup.scr");
             let entry = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(1u8);

@@ -103,6 +103,16 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   transcription-only oracle could not — op 72 is *free cached graphics*, not
   *load*. (Full opcode side effects into actor/world state remain future work;
   per-entry execution is deterministic, so decode order is run order.)
+- **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
+  `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
+  header (byte/short/int fields, big-endian, with `byte`s written as
+  sign-extended 2-byte pairs) + model name + item records. `parse_save` /
+  `serialize_save` **round-trip byte-for-byte** (a game-written blob's own
+  save→load is exactly this), proptest-fuzzed. A FreeJ2ME `RecordStore` hook
+  (`-Doracle.savelog`) + `eso-dump save-roundtrip <blob>` are wired to validate a
+  captured live blob; capturing one requires reaching the in-game save menu
+  (the hook is ready). The item `active` bit (recomputed from combat state on
+  write) is preserved as raw bytes — recomputing it is M8.
 - **M5** — `.scr` data tables materialized: the section sub-parsers now capture
   full row values (actor/item/spell/etc. stats) with each subtype's exact
   signedness, inline-string-pool indexing, and the two global lists (subtype 7's
@@ -131,6 +141,7 @@ java OracleDump scr-trace ../assets /startup.scr 1 > ../tests/fixtures/oracle/sc
 
 # tools
 cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-exec|scr-coverage ./assets
+cargo run -p eso-tools -- save-roundtrip path/to/eso_blob.bin
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm artifacts/l01_1.png
 cargo run -p render --bin sprite-shot -- ./assets oh_pc.cml c1.png l01_1.jtm artifacts/pc
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
