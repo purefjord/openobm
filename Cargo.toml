@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/formats",
+    "crates/eso-tools",
+    "crates/render",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+rust-version = "1.94"
+
+[workspace.dependencies]
+formats = { path = "crates/formats" }
+anyhow = "1"
+
+# Java ME has silent integer wraparound; we want that to surface as a test panic
+# during the port, not as a wrong pixel later (see GOAL.md section 9). Each site
+# that genuinely relies on wrapping must use wrapping_* / explicit casts.
+[profile.dev]
+overflow-checks = true
+
+[profile.test]
+overflow-checks = true
+
+# Lints applied workspace-wide. clippy is run as `-D warnings` in CI.
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

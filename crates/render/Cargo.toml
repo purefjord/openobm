@@ -1,0 +1,19 @@
+[package]
+name = "render"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Debug isometric map renderer (macroquad) behind a thin Renderer abstraction."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "map-view"
+path = "src/main.rs"
+
+[dependencies]
+formats.workspace = true
+anyhow.workspace = true
+macroquad = "0.4"

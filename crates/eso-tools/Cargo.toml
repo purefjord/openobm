@@ -1,0 +1,22 @@
+[package]
+name = "eso-tools"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Dumpers that emit byte-comparable ground-truth for diffing against the FreeJ2ME oracle."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "eso-dump"
+path = "src/main.rs"
+
+[dependencies]
+formats.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+proptest = "1"
