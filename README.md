@@ -98,6 +98,12 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   signedness, inline-string-pool indexing, and the two global lists (subtype 7's
   flat list, subtype 9's slot list). All 32 scripts' tables **match the oracle
   byte-for-byte**. (Executing opcode side effects remains future work.)
+- **M6** — sprite rendering: decode the indexed/`tRNS` PNGs to RGBA and draw
+  `.cml` animation frames (source rect + offset + horizontal flip, per
+  `g.java::a(Graphics, d, ...)`). The player's 24-group walk/attack/cast cycle
+  renders as clean character poses, and the player composites over an iso map
+  (`artifacts/pc_sheet.png`, `artifacts/pc_map.png`). Pixel-parity against the
+  real game's in-game frames is gated on the oracle's input-injection enabler.
 
 ## Build & test
 
@@ -116,6 +122,7 @@ java OracleDump scr-trace ../assets /startup.scr 1 > ../tests/fixtures/oracle/sc
 # tools
 cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-coverage ./assets
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm artifacts/l01_1.png
+cargo run -p render --bin sprite-shot -- ./assets oh_pc.cml c1.png l01_1.jtm artifacts/pc
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 ```
 

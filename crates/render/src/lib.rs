@@ -14,6 +14,8 @@
 
 use formats::{world_to_screen, JtmMap, Vec2i};
 
+pub mod sprite;
+
 /// 8-bit RGBA color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
@@ -124,6 +126,39 @@ impl ImageRenderer {
         self.pixels[i + 1] = c.1;
         self.pixels[i + 2] = c.2;
         self.pixels[i + 3] = c.3;
+    }
+
+    /// Blit a `.cml` frame (a sub-rectangle of `png`) at destination `(dx, dy)`,
+    /// honoring per-pixel alpha (fully transparent pixels are skipped) and the
+    /// frame's horizontal flip. Mirrors the source-rect + offset + flip draw in
+    /// `g.java::a(Graphics, d, ...)`.
+    pub fn blit_frame(
+        &mut self,
+        png: &crate::sprite::Png,
+        f: crate::sprite::FrameView,
+        dx: i32,
+        dy: i32,
+    ) {
+        for row in 0..f.height {
+            for col in 0..f.width {
+                let src_col = if f.flip { f.width - 1 - col } else { col };
+                let px = f.src_x + src_col;
+                let py = f.src_y + row;
+                if px < 0 || py < 0 || px >= png.w as i32 || py >= png.h as i32 {
+                    continue;
+                }
+                let i = ((py * png.w as i32 + px) * 4) as usize;
+                let a = png.rgba[i + 3];
+                if a == 0 {
+                    continue;
+                }
+                self.put(
+                    dx + col,
+                    dy + row,
+                    Rgba(png.rgba[i], png.rgba[i + 1], png.rgba[i + 2], a),
+                );
+            }
+        }
     }
 
     /// Encode the buffer to a PNG file.

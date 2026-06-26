@@ -21,6 +21,10 @@ name = "map-shot"
 path = "src/bin/map_shot.rs"
 
 [[bin]]
+name = "sprite-shot"
+path = "src/bin/sprite_shot.rs"
+
+[[bin]]
 name = "map-view"
 path = "src/bin/map_view.rs"
 required-features = ["interactive"]
