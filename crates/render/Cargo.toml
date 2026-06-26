@@ -4,16 +4,29 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Debug isometric map renderer (macroquad) behind a thin Renderer abstraction."
+description = "Debug isometric map renderer behind a thin Renderer trait (CPU + macroquad backends)."
 
 [lints]
 workspace = true
 
+# Default build is the headless CPU renderer (produces PNG screenshots and is
+# verifiable in CI). The interactive macroquad window is opt-in so a GPU/display
+# is never required to build or test the rest of the workspace.
+[features]
+default = []
+interactive = ["dep:macroquad"]
+
+[[bin]]
+name = "map-shot"
+path = "src/bin/map_shot.rs"
+
 [[bin]]
 name = "map-view"
-path = "src/main.rs"
+path = "src/bin/map_view.rs"
+required-features = ["interactive"]
 
 [dependencies]
 formats.workspace = true
 anyhow.workspace = true
-macroquad = "0.4"
+png = "0.17"
+macroquad = { version = "0.4", optional = true }

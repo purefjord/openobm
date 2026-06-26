@@ -44,9 +44,7 @@ fn assert_identical(rust: &str, oracle: &str, what: &str) {
         line += 1;
         match (r.next(), o.next()) {
             (Some(a), Some(b)) if a == b => continue,
-            (a, b) => panic!(
-                "{what} mismatch at line {line}:\n  rust:   {a:?}\n  oracle: {b:?}"
-            ),
+            (a, b) => panic!("{what} mismatch at line {line}:\n  rust:   {a:?}\n  oracle: {b:?}"),
         }
     }
 }
