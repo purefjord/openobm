@@ -125,6 +125,10 @@ pub fn dump_lang(store: &AssetStore, ids: &[u8]) -> Result<String> {
 }
 
 fn flags_str(f: &[i32; 10]) -> String {
+    ints(f)
+}
+
+fn ints(f: &[i32]) -> String {
     f.iter()
         .map(|v| v.to_string())
         .collect::<Vec<_>>()
@@ -184,12 +188,13 @@ pub fn dump_scr(store: &AssetStore, names: &[String]) -> Result<String> {
         writeln!(out, "# scr {res}")?;
         writeln!(
             out,
-            "entry_count={} code_start={} code_len={} sections={} strings={}",
+            "entry_count={} code_start={} code_len={} sections={} strings={} global_e={}",
             p.entry_count,
             p.code_start,
             p.code.len(),
             p.sections.len(),
-            p.string_count
+            p.string_count,
+            p.global_e_count
         )?;
         let mut entries = String::from("entries:");
         for (id, off) in p.entry_offsets.iter().enumerate() {
@@ -199,7 +204,20 @@ pub fn dump_scr(store: &AssetStore, names: &[String]) -> Result<String> {
         }
         writeln!(out, "{entries}")?;
         for s in &p.sections {
-            writeln!(out, "section subtype={} index={}", s.subtype, s.index)?;
+            write!(
+                out,
+                "section subtype={} index={} fields=[{}]",
+                s.subtype,
+                s.index,
+                ints(&s.fields)
+            )?;
+            if !s.aux_a.is_empty() {
+                write!(out, " aux_a=[{}]", ints(&s.aux_a))?;
+            }
+            if !s.aux_b.is_empty() {
+                write!(out, " aux_b=[{}]", ints(&s.aux_b))?;
+            }
+            out.push('\n');
         }
         writeln!(out, "code_fnv={:016x}", fnv1a(&p.code))?;
     }

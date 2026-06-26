@@ -526,6 +526,7 @@ mod tests {
             code,
             sections: vec![],
             string_count: 0,
+            global_e_count: 0,
         })
     }
 

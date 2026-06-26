@@ -43,7 +43,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 |---|---|---|
 | `.jtm` grids | all 17 maps, all layers | byte-identical |
 | `lang_*.txt` | all 13 tables, 546 entries | byte-identical |
-| `.scr` loader | all 32 scripts (entries, code_start, code hash, sections) | byte-identical |
+| `.scr` loader + stat tables | all 32 scripts (entries, code, sections w/ full row values + aux lists) | byte-identical |
 | `.scr` opcode trace | `startup.scr` entry 1, full | byte-identical |
 | `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
 
@@ -91,6 +91,11 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   in the path read was resolved against `g.class` bytecode (`javap -c`). Sprite
   *rendering* (decoding the referenced PNGs + frame placement) is deferred to the
   renderer milestone.
+- **M5** — `.scr` data tables materialized: the section sub-parsers now capture
+  full row values (actor/item/spell/etc. stats) with each subtype's exact
+  signedness, inline-string-pool indexing, and the two global lists (subtype 7's
+  flat list, subtype 9's slot list). All 32 scripts' tables **match the oracle
+  byte-for-byte**. (Executing opcode side effects remains future work.)
 
 ## Build & test
 
