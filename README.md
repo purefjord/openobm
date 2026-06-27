@@ -47,6 +47,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `.scr` opcode trace | `startup.scr` entry 1, full | byte-identical |
 | `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
 | `h.f` progression | 5957 synthetic actors (8 classes × 20 levels × 37 races, ± inventory) vs **real `h.f` bytecode** | byte-identical |
+| melee combat | 730 attacker/target+seed cases (damage/crit/dodge/block/armor/weapon-tiers + RNG draws) vs **real `h.a` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -120,8 +121,18 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   It is validated against the **real `h.f` bytecode**, not a transcription: a new
   oracle (`Instrument.dumpHf`) constructs synthetic `j` actors under FreeJ2ME and
   invokes the genuine private `h.f`, sweeping the whole class/level/race space; the
-  Rust port reproduces all 5957 outputs byte-for-byte (`hf_matches_oracle`). The
-  `h.f` secondary pass and **combat damage resolution** remain.
+  Rust port reproduces all 5957 outputs byte-for-byte (`hf_matches_oracle`).
+  **Melee combat damage** is now ported too (`combat.rs::melee_attack` =
+  `h.a(j,j,bool)` + `h.a(int,j,j,bool,bool)`): the damage formula, weapon-tier
+  override + non-player halving, crit, armor/dodge/block resolution, and the exact
+  `java.util.Random` draw sequence (faithful `JavaRandom` LCG). Validated against
+  the **real `h.a` bytecode** with a deterministically seeded RNG (`dumpCombat`,
+  dumped while paused so the game loop can't race the shared RNG; each case carries
+  one extra `nextInt()` "probe" so a wrong draw count fails the diff) — 730 cases
+  match byte-for-byte (`combat_matches_oracle`). Out of scope (touch global/UI
+  state, not pure math): the spell/cast path, the attacker E-update vs non-player
+  targets, the death branch (XP/level-up/animation/sound), and the `h.f` secondary
+  pass — these are the remaining M8 work.
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

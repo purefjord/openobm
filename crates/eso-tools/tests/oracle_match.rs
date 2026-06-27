@@ -13,7 +13,9 @@
 //!   java OracleDump jtm  ../assets > ../tests/fixtures/oracle/jtm_canonical.txt
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
-use eso_tools::{dump_cml, dump_hf_sweep, dump_jtm, dump_lang, dump_scr, dump_scr_trace};
+use eso_tools::{
+    dump_cml, dump_combat_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr, dump_scr_trace,
+};
 use formats::AssetStore;
 
 fn assets() -> AssetStore {
@@ -93,4 +95,15 @@ fn scr_trace_startup_matches_oracle() {
 fn hf_matches_oracle() {
     let rust = dump_hf_sweep(&fixture_path("hf_tables.txt")).expect("rust h.f sweep");
     assert_identical(&rust, &oracle("hf_sweep.txt"), "hf");
+}
+
+/// Melee combat damage. The Rust port (`formats::melee_attack`) runs the same
+/// attacker/target + seed sweep that the FreeJ2ME oracle drove through the real
+/// `h.a` bytecode with a deterministically seeded `java.util.Random`. Each line's
+/// trailing `probe` (one extra `nextInt()`) makes a wrong RNG-draw count fail the
+/// diff, so this validates the damage/defense/crit math *and* RNG consumption.
+#[test]
+fn combat_matches_oracle() {
+    let rust = dump_combat_sweep().expect("rust combat sweep");
+    assert_identical(&rust, &oracle("combat_sweep.txt"), "combat");
 }

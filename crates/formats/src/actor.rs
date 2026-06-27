@@ -81,6 +81,16 @@ pub struct Actor {
     /// Inventory: indices into the item table (subtype 1); `-1` = empty slot.
     /// `j.var_int_arr_n` (`new int[8]`, default all 0).
     pub var_int_arr_n: [i32; 8],
+
+    // --- combat fields (read/written by the attack resolution) ---
+    pub var_byte_u: i8, // j.var_byte_u  (1 = cannot be attacked)
+    pub var_byte_q: i8, // j.var_byte_q  (1 = dead)
+    pub var_byte_t: i8, // j.var_byte_t  (creature-class flag)
+    pub h_field: i16,   // j.H  (dodge-skill %, default 100)
+    /// Equipped weapon row (`j.var_int_arr_l`); `None` = unarmed.
+    pub var_int_arr_l: Option<Vec<i32>>,
+    /// Whether `j.var_j_a` (the last aggressor back-ref) has been set non-null.
+    pub var_j_a_set: bool,
 }
 
 impl Default for Actor {
@@ -128,6 +138,12 @@ impl Default for Actor {
             prog_c: 100,
             prog_d: 100,
             var_int_arr_n: [0; 8],
+            var_byte_u: 0,
+            var_byte_q: 0,
+            var_byte_t: 0,
+            h_field: 100,
+            var_int_arr_l: None,
+            var_j_a_set: false,
         }
     }
 }

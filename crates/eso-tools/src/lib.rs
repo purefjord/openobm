@@ -540,6 +540,139 @@ fn hf_line(
     Ok(())
 }
 
+/// Run the Rust melee port (`formats::melee_attack`) over the same synthetic
+/// attacker/target + seed sweep the FreeJ2ME oracle (`Instrument.dumpCombat`)
+/// drives through the *real* `h.a` bytecode, emitting byte-identical canonical
+/// text. The per-case `probe` is one extra `nextInt()` after the attack: it pins
+/// that combat consumed the identical number of RNG draws. Self-contained (no
+/// table input): the actors' combat fields are set directly, as in the oracle.
+pub fn dump_combat_sweep() -> Result<String> {
+    use formats::{melee_attack, Actor, JavaRandom};
+
+    let atk_s = [10i32, 40];
+    let atk_d = [60i32, 120];
+    let tgt_a = [0i32, 50];
+    let tgt_v = [0i32, 20];
+    let tgt_b = [0i32, 40];
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# combat sweep: seed s D A v B | qAfter byteQ died outcome probe"
+    )?;
+    for seed in 0..20i64 {
+        for &s in &atk_s {
+            for &d in &atk_d {
+                for &a in &tgt_a {
+                    for &v in &tgt_v {
+                        for &bb in &tgt_b {
+                            let attacker = Actor {
+                                var_byte_c: 0,
+                                var_byte_o: 5,
+                                var_byte_t: 0,
+                                var_byte_u: 0,
+                                var_short_s: s as i16,
+                                o_bonus: 5,
+                                var_byte_i: 10,
+                                k_bonus: 2,
+                                n_bonus: 3,
+                                prog_d: d as i16,
+                                var_int_arr_l: None,
+                                ..Default::default()
+                            };
+                            let mut target = Actor {
+                                var_byte_c: 1,
+                                var_byte_u: 0,
+                                var_byte_q: 0,
+                                prog_a: a as i16,
+                                prog_b: bb as i16,
+                                h_field: 100,
+                                var_short_v: v as i16,
+                                var_short_z: 0,
+                                l_bonus: 0,
+                                m_bonus: 0,
+                                var_short_q: 10_000,
+                                ..Default::default()
+                            };
+                            let mut rng = JavaRandom::new(seed);
+                            let (died, outcome) =
+                                melee_attack(&attacker, &mut target, true, &mut rng);
+                            let probe = rng.next_int();
+                            writeln!(
+                                out,
+                                "{seed} {s} {d} {a} {v} {bb} | {} {} {} {} {probe}",
+                                target.var_short_q,
+                                target.var_byte_q,
+                                i32::from(died),
+                                outcome as i32
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase B: equipped-weapon damage override (see oracle Phase B comment).
+    writeln!(
+        out,
+        "# phase B (weapons): W seed c bl wtype lvl | qAfter byteQ died outcome probe"
+    )?;
+    let weps = [
+        vec![0i32, 0, 1, 10, 20, 30, 0, 0, 0, 5, 10],
+        vec![0i32, 0, 4, 10, 20, 30, 0, 0, 0, 5, 10],
+    ];
+    let lvls = [3i32, 5, 10];
+    let cfgs = [(1i32, true, 0usize), (0, false, 0), (0, false, 1)]; // (c, bl, wtype)
+    for seed in 0..10i64 {
+        for &(c, bl, wi) in &cfgs {
+            for &lvl in &lvls {
+                let attacker = Actor {
+                    var_byte_c: c as i8,
+                    var_byte_o: lvl as i8,
+                    var_byte_t: 0,
+                    var_byte_u: 0,
+                    var_short_s: 20,
+                    o_bonus: 5,
+                    var_byte_i: 10,
+                    k_bonus: 2,
+                    n_bonus: 3,
+                    prog_d: 100,
+                    var_int_arr_l: Some(weps[wi].clone()),
+                    ..Default::default()
+                };
+                let mut target = Actor {
+                    var_byte_c: 1,
+                    var_byte_u: 0,
+                    var_byte_q: 0,
+                    prog_a: 0,
+                    prog_b: 0,
+                    h_field: 100,
+                    var_short_v: 0,
+                    var_short_z: 0,
+                    l_bonus: 0,
+                    m_bonus: 0,
+                    var_short_q: 10_000,
+                    ..Default::default()
+                };
+                let mut rng = JavaRandom::new(seed);
+                let (died, outcome) = melee_attack(&attacker, &mut target, bl, &mut rng);
+                let probe = rng.next_int();
+                writeln!(
+                    out,
+                    "W {seed} {c} {} {wi} {lvl} | {} {} {} {} {probe}",
+                    i32::from(bl),
+                    target.var_short_q,
+                    target.var_byte_q,
+                    i32::from(died),
+                    outcome as i32
+                )?;
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn pick(store: &AssetStore, names: &[String], ext: &str) -> Result<Vec<String>> {
     if names.is_empty() {
         Ok(store.list(ext)?)

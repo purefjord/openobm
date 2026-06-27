@@ -8,8 +8,8 @@
 
 use anyhow::{bail, Result};
 use eso_tools::{
-    dump_cml, dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_scr, dump_scr_exec,
-    dump_scr_trace, save_roundtrip, scr_coverage, summarize_jtm,
+    dump_cml, dump_combat_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_scr,
+    dump_scr_exec, dump_scr_trace, save_roundtrip, scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -35,6 +35,8 @@ fn main() -> Result<()> {
         "save-roundtrip" => save_roundtrip(&args[1])?,
         // hf-sweep takes the oracle's table dump file path (not an assets dir).
         "hf-sweep" => dump_hf_sweep(&args[1])?,
+        // combat-sweep is self-contained (ignores the second arg).
+        "combat-sweep" => dump_combat_sweep()?,
         "scr-trace" => {
             let res = rest.first().map(String::as_str).unwrap_or("/startup.scr");
             let entry = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(1u8);
