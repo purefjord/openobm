@@ -673,6 +673,78 @@ pub fn dump_combat_sweep() -> Result<String> {
     Ok(out)
 }
 
+/// Run the Rust XP/level-up port (`Actor::award_xp`) over the same sweep the
+/// oracle (`Instrument.dumpXp`) drives through the real `h.c`. First emits the XP
+/// tables from the Rust constants (the oracle emits the real `h.var_short_arr_a/b`,
+/// so the diff directly validates those 52 numbers), then the per-case results.
+/// Reads the stat-table fixture because a level-up runs `h.f`.
+pub fn dump_xp_sweep(tables_path: &str) -> Result<String> {
+    use formats::actor::{XP_REWARD, XP_THRESHOLD};
+    use formats::Actor;
+
+    let text = std::fs::read_to_string(tables_path)
+        .with_context(|| format!("reading tables fixture {tables_path}"))?;
+    let tables = parse_tables(&text)?;
+
+    let levels = [1i32, 4, 5, 9, 14, 19, 24];
+    let races = [1i32, 7, 13, 19, 25];
+    let cfgs = [(30_000i32, 5usize), (0, 1)]; // (startXP, n): 0=levelup, 1=no-levelup
+
+    let mut out = String::new();
+    write!(out, "threshold")?;
+    for v in XP_THRESHOLD {
+        write!(out, " {v}")?;
+    }
+    write!(out, "\nreward")?;
+    for v in XP_REWARD {
+        write!(out, " {v}")?;
+    }
+    writeln!(out)?;
+    writeln!(
+        out,
+        "# xp sweep: class lvl race cfg | int_b o s t u v w x y maxH maxF rH rF i z A B C D"
+    )?;
+    for cls in 1..=8u8 {
+        for &lvl in &levels {
+            for &race in &races {
+                for (cfg, &(start_xp, n)) in cfgs.iter().enumerate() {
+                    let mut a = Actor {
+                        var_byte_c: 1,
+                        var_byte_f: cls as i8,
+                        var_byte_j: race as i8,
+                        var_byte_o: lvl as i8,
+                        var_int_b: start_xp,
+                        var_int_arr_n: [-1; 8],
+                        var_short_s: 30,
+                        var_short_t: 30,
+                        var_short_u: 30,
+                        var_short_v: 30,
+                        var_short_w: 30,
+                        var_short_x: 30,
+                        var_short_y: 30,
+                        o_bonus: 0,
+                        i_bonus: 0,
+                        j_bonus: 0,
+                        ..Default::default()
+                    };
+                    a.award_xp(n, &tables);
+                    writeln!(
+                        out,
+                        "{cls} {lvl} {race} {cfg} | {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                        a.var_int_b, a.var_byte_o,
+                        a.var_short_s, a.var_short_t, a.var_short_u, a.var_short_v,
+                        a.var_short_w, a.var_short_x, a.var_short_y,
+                        a.var_short_o, a.var_short_p, a.var_short_d, a.var_short_f,
+                        a.var_byte_i, a.var_short_z,
+                        a.prog_a, a.prog_b, a.prog_c, a.prog_d
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn pick(store: &AssetStore, names: &[String], ext: &str) -> Result<Vec<String>> {
     if names.is_empty() {
         Ok(store.list(ext)?)

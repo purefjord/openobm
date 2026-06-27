@@ -37,6 +37,7 @@ pub struct Actor {
     pub var_short_v: i16,
     pub var_short_w: i16,
     pub var_short_x: i16, // endurance
+    pub var_short_y: i16, // luck (incremented on level-up)
     pub i_bonus: i16,     // j.I  (health bonus from equipment/spells)
     pub j_bonus: i16,     // j.J  (fatigue bonus)
     pub o_bonus: i16,     // j.O  (strength-ish bonus feeding health)
@@ -107,6 +108,7 @@ impl Default for Actor {
             var_short_v: 0,
             var_short_w: 0,
             var_short_x: 0,
+            var_short_y: 0,
             i_bonus: 0,
             j_bonus: 0,
             o_bonus: 0,
@@ -765,6 +767,144 @@ impl Actor {
             return;
         }
         self.prog_d = 125;
+    }
+}
+
+/// XP required to *reach* each level (`h.var_short_arr_a`, index = level).
+pub const XP_THRESHOLD: [i32; 26] = [
+    0, 0, 100, 210, 340, 500, 700, 950, 1260, 1640, 2100, 2650, 3300, 4060, 4940, 5950, 7100, 8400,
+    9860, 11490, 13300, 15300, 17500, 19910, 22540, 25400,
+];
+/// XP awarded for killing an enemy of level `n` (`h.var_short_arr_b`).
+pub const XP_REWARD: [i32; 26] = [
+    0, 10, 12, 15, 19, 24, 30, 37, 45, 54, 64, 75, 87, 100, 114, 129, 145, 162, 180, 199, 219, 240,
+    262, 285, 309, 334,
+];
+
+impl Actor {
+    /// `h.java::c(j, int)` — award XP for a kill (enemy level `n`), and if the
+    /// next-level threshold is crossed (player only, level < 25), **level up**:
+    /// +1 to all seven attributes, the class level bonus (`h.g`), a health/fatigue
+    /// recompute, then the progression pass (`h.f`). One kill levels up at most
+    /// once (a single `if`, not a loop). Player-only; the `var_j_d` owner redirect
+    /// and the floating-text messages (`b.a`, pure UI) are out of scope.
+    pub fn award_xp(&mut self, n: usize, tables: &Tables) {
+        if self.var_byte_c != 1 {
+            return;
+        }
+        self.var_int_b += XP_REWARD[n];
+        if i32::from(self.var_byte_o) < 25
+            && self.var_int_b >= XP_THRESHOLD[(i32::from(self.var_byte_o) + 1) as usize]
+        {
+            self.var_byte_o += 1;
+            self.var_short_s += 1;
+            self.var_short_t += 1;
+            self.var_short_u += 1;
+            self.var_short_v += 1;
+            self.var_short_w += 1;
+            self.var_short_x += 1;
+            self.var_short_y += 1;
+            self.level_up_class_bonus();
+            self.recompute();
+            self.class_progression(tables);
+        }
+    }
+
+    /// `h.java::g(j)` — a class-specific attribute bonus applied when the *new*
+    /// level is exactly 5/10/15/20.
+    fn level_up_class_bonus(&mut self) {
+        let o = i32::from(self.var_byte_o);
+        match self.var_byte_f {
+            1 => {
+                if o == 5 {
+                    self.var_short_w += 25;
+                } else if o == 10 {
+                    self.var_short_v += 1;
+                } else if o == 15 {
+                    self.var_short_x += 2;
+                } else if o == 20 {
+                    self.var_short_s += 2;
+                }
+            }
+            2 => {
+                if o == 5 {
+                    self.var_short_v += 1;
+                } else if o == 10 {
+                    self.var_short_u += 1;
+                } else if o == 15 {
+                    self.var_short_t += 2;
+                } else if o == 20 {
+                    self.var_short_v += 2;
+                }
+            }
+            3 => {
+                if o == 5 {
+                    self.var_short_s += 1;
+                } else if o == 10 {
+                    self.var_short_x += 1;
+                } else if o == 15 {
+                    self.var_short_x += 2;
+                } else if o == 20 {
+                    self.var_short_s += 2;
+                }
+            }
+            4 => {
+                if o == 5 {
+                    self.var_short_w += 25;
+                } else if o == 10 {
+                    self.var_short_v += 2;
+                } else if o == 15 {
+                    self.var_short_s += 1;
+                } else if o == 20 {
+                    self.var_short_s += 2;
+                }
+            }
+            5 => {
+                if o == 5 {
+                    self.var_short_s += 1;
+                } else if o == 10 {
+                    self.var_short_x += 1;
+                } else if o == 15 {
+                    self.var_short_s += 2;
+                } else if o == 20 {
+                    self.var_short_x += 2;
+                }
+            }
+            6 => {
+                if o == 5 {
+                    self.var_short_v += 1;
+                } else if o == 10 {
+                    self.var_short_u += 1;
+                } else if o == 15 {
+                    self.var_short_t += 2;
+                } else if o == 20 {
+                    self.var_short_u += 2;
+                }
+            }
+            7 => {
+                if o == 5 {
+                    self.var_short_t += 1;
+                } else if o == 10 {
+                    self.var_short_u += 1;
+                } else if o == 15 {
+                    self.var_short_u += 2;
+                } else if o == 20 {
+                    self.var_short_t += 2;
+                }
+            }
+            8 => {
+                if o == 5 {
+                    self.var_short_u += 1;
+                } else if o == 10 {
+                    self.var_short_s += 1;
+                } else if o == 15 {
+                    self.var_short_t += 2;
+                } else if o == 20 {
+                    self.var_short_u += 2;
+                }
+            }
+            _ => {}
+        }
     }
 }
 

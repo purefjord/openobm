@@ -48,6 +48,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
 | `h.f` progression | 5957 synthetic actors (8 classes × 20 levels × 37 races, ± inventory) vs **real `h.f` bytecode** | byte-identical |
 | melee combat | 730 attacker/target+seed cases (damage/crit/dodge/block/armor/weapon-tiers + RNG draws) vs **real `h.a` bytecode** | byte-identical |
+| XP / level-up | 560 class×level×race cases + the 52-entry XP tables vs **real `h.c`/`h.g` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -129,10 +130,16 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   the **real `h.a` bytecode** with a deterministically seeded RNG (`dumpCombat`,
   dumped while paused so the game loop can't race the shared RNG; each case carries
   one extra `nextInt()` "probe" so a wrong draw count fails the diff) — 730 cases
-  match byte-for-byte (`combat_matches_oracle`). Out of scope (touch global/UI
-  state, not pure math): the spell/cast path, the attacker E-update vs non-player
-  targets, the death branch (XP/level-up/animation/sound), and the `h.f` secondary
-  pass — these are the remaining M8 work.
+  match byte-for-byte (`combat_matches_oracle`). **XP / level-up** is ported too
+  (`Actor::award_xp` = `h.c(j,int)` + `h.g`): award `var_short_arr_b[n]` XP, and on
+  crossing `var_short_arr_a[level+1]` level up — +1 to all seven attributes, the
+  class level bonus (`h.g`), a health/fatigue recompute, and the progression pass
+  (`h.f`). The 52-entry XP tables are hardcoded and dumped alongside the sweep, so
+  the diff validates them against the real `h.var_short_arr_a/b` statics. 560 cases
+  + the tables match the **real `h.c` bytecode** (`xp_matches_oracle`). Out of scope
+  (touch global/UI/animation state, not pure math): the spell/cast path, the
+  attacker E-update vs non-player targets, the combat death branch
+  (animation/sound), and the `h.f` secondary pass — the remaining M8 work.
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

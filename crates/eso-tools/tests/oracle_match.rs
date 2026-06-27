@@ -15,6 +15,7 @@
 
 use eso_tools::{
     dump_cml, dump_combat_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr, dump_scr_trace,
+    dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -106,4 +107,15 @@ fn hf_matches_oracle() {
 fn combat_matches_oracle() {
     let rust = dump_combat_sweep().expect("rust combat sweep");
     assert_identical(&rust, &oracle("combat_sweep.txt"), "combat");
+}
+
+/// XP / level-up (`h.c` + `h.g`). The Rust port (`Actor::award_xp`) runs the same
+/// class×level×race×config sweep the oracle drove through the real `h.c`; the
+/// dumped XP tables (Rust constants vs the real `h.var_short_arr_a/b`) and every
+/// level-up result (attributes, class bonus `h.g`, health recompute, progression
+/// `h.f`) must match byte-for-byte. Reuses `hf_tables.txt` for the level-up `h.f`.
+#[test]
+fn xp_matches_oracle() {
+    let rust = dump_xp_sweep(&fixture_path("hf_tables.txt")).expect("rust xp sweep");
+    assert_identical(&rust, &oracle("xp_sweep.txt"), "xp");
 }
