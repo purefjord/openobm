@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 
 use anyhow::{Context, Result};
 use formats::vm::StepKind;
-use formats::{parse_cml, parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm};
+use formats::{parse_cml, parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm, Tables};
 
 /// FNV-1a 64-bit hash — small, dependency-free, deterministic across platforms.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -437,6 +437,107 @@ pub fn dump_scr_trace(
     };
     writeln!(out, "result={result} steps={}", steps.len())?;
     Ok(out)
+}
+
+/// Parse the oracle's live-store table dump (`Instrument.dumpTables`) into a
+/// [`Tables`]. Format: `subtype <s> rows <r> cols <c>` headers, then rows
+/// `<s> <rowidx> <v0> <v1> ...` (the leading subtype + row index are stripped).
+fn parse_tables(text: &str) -> Result<Tables> {
+    let mut tables = Tables::default();
+    let mut cur: Option<(u8, Vec<Vec<i32>>)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("subtype ") {
+            if let Some((st, rows)) = cur.take() {
+                tables.insert(st, rows);
+            }
+            let st: u8 = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .context("table header missing subtype")?;
+            cur = Some((st, Vec::new()));
+        } else {
+            let toks = line
+                .split_whitespace()
+                .map(|s| s.parse::<i32>())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| anyhow::anyhow!("non-integer in table row: {line:?}"))?;
+            let (_, rows) = cur
+                .as_mut()
+                .context("table row before any subtype header")?;
+            // Drop the leading [subtype, rowindex]; the rest is the row.
+            rows.push(toks.get(2..).unwrap_or(&[]).to_vec());
+        }
+    }
+    if let Some((st, rows)) = cur.take() {
+        tables.insert(st, rows);
+    }
+    Ok(tables)
+}
+
+/// Run the Rust port of `h.f` (`Actor::class_progression`) over the same synthetic
+/// actor sweep the FreeJ2ME oracle (`Instrument.dumpHf`) drives through the *real*
+/// `h.f`, emitting the byte-identical canonical text for a mechanical diff. Reads
+/// the ground-truth stat tables from the oracle's `dumptables` capture so both
+/// sides operate on provably-identical table input.
+pub fn dump_hf_sweep(tables_path: &str) -> Result<String> {
+    let text = std::fs::read_to_string(tables_path)
+        .with_context(|| format!("reading tables fixture {tables_path}"))?;
+    let tables = parse_tables(&text)?;
+    let r4 = tables.rows(4).len();
+
+    let empty = [-1i32; 8];
+    let full = [0i32, 1, 2, 3, 4, 5, 6, 7];
+
+    let mut out = String::new();
+    writeln!(out, "# h.f sweep: f o j inv0..inv7 | i z A B C D")?;
+    writeln!(out, "races {r4}")?;
+    // Phase A: empty inventory, full class x level x race.
+    for fv in 1..=8u8 {
+        for ov in 1..=20u8 {
+            for jv in 0..r4 {
+                hf_line(&mut out, &tables, fv, ov, jv, &empty)?;
+            }
+        }
+    }
+    // Phase B: full inventory at class 1 / level 1, all races (exercises var_short_z).
+    for jv in 0..r4 {
+        hf_line(&mut out, &tables, 1, 1, jv, &full)?;
+    }
+    Ok(out)
+}
+
+fn hf_line(
+    out: &mut String,
+    tables: &Tables,
+    fv: u8,
+    ov: u8,
+    jv: usize,
+    inv: &[i32; 8],
+) -> Result<()> {
+    let mut a = formats::Actor {
+        var_byte_f: fv as i8,
+        var_byte_o: ov as i8,
+        var_byte_j: jv as i8,
+        var_int_arr_n: *inv,
+        ..Default::default()
+    };
+    a.class_progression(tables);
+    write!(out, "{fv} {ov} {jv}")?;
+    for v in inv {
+        write!(out, " {v}")?;
+    }
+    write!(
+        out,
+        " | {} {} {} {} {} {}",
+        a.var_byte_i, a.var_short_z, a.prog_a, a.prog_b, a.prog_c, a.prog_d
+    )?;
+    out.push('\n');
+    Ok(())
 }
 
 fn pick(store: &AssetStore, names: &[String], ext: &str) -> Result<Vec<String>> {

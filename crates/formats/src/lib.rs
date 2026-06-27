@@ -25,7 +25,7 @@ pub mod save;
 pub mod scr;
 pub mod vm;
 
-pub use actor::Actor;
+pub use actor::{Actor, Tables};
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};
 pub use iso::{screen_to_world, world_to_screen, Vec2i};

@@ -70,6 +70,17 @@ pub struct Actor {
 
     pub var_byte_r: i8,
     pub var_int_b: i32,
+
+    // --- class/level progression fields, set by `h.f` (`class_progression`) ---
+    pub var_byte_i: i8,   // j.var_byte_i  (= race row[3])
+    pub var_short_z: i16, // j.var_short_z (= sum of equipped item row[4])
+    pub prog_a: i16,      // j.var_short_A
+    pub prog_b: i16,      // j.B
+    pub prog_c: i16,      // j.C
+    pub prog_d: i16,      // j.D
+    /// Inventory: indices into the item table (subtype 1); `-1` = empty slot.
+    /// `j.var_int_arr_n` (`new int[8]`, default all 0).
+    pub var_int_arr_n: [i32; 8],
 }
 
 impl Default for Actor {
@@ -110,6 +121,13 @@ impl Default for Actor {
             queued_fatigue: None,
             var_byte_r: 1,
             var_int_b: 0,
+            var_byte_i: 0,
+            var_short_z: 0,
+            prog_a: 0,
+            prog_b: 0,
+            prog_c: 100,
+            prog_d: 100,
+            var_int_arr_n: [0; 8],
         }
     }
 }
@@ -229,6 +247,508 @@ impl Actor {
             self.var_short_j = 0;
             self.p_bonus = g(5) as i16;
         }
+    }
+}
+
+/// The `.scr` stat-table store (`e`'s `int[][]` tables, keyed by subtype). `h.f`
+/// consumes subtype 4 (race/spec rows, `e.c`, 8 cols) and subtype 1 (item rows,
+/// `e.d`, 10 cols). Built from a parsed/accumulated `.scr` program or from the
+/// oracle's live-store dump.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tables {
+    by_subtype: std::collections::BTreeMap<u8, Vec<Vec<i32>>>,
+}
+
+impl Tables {
+    pub fn insert(&mut self, subtype: u8, rows: Vec<Vec<i32>>) {
+        self.by_subtype.insert(subtype, rows);
+    }
+
+    /// Rows of a subtype's table (empty slice if the subtype is absent).
+    pub fn rows(&self, subtype: u8) -> &[Vec<i32>] {
+        self.by_subtype
+            .get(&subtype)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// A single row, mirroring `e.int_arr_a(subtype, idx)` for in-range indices
+    /// (the only case `h.f` ever hits; the original's out-of-range fall-through
+    /// is deliberately *not* modeled — `h.f` indexes are always valid).
+    pub fn row(&self, subtype: u8, idx: i32) -> Option<&[i32]> {
+        if idx < 0 {
+            return None;
+        }
+        self.by_subtype
+            .get(&subtype)
+            .and_then(|t| t.get(idx as usize))
+            .map(Vec::as_slice)
+    }
+}
+
+impl Actor {
+    /// `h.java::f(j)` — the class/level/race progression table. Sets `var_byte_i`
+    /// from the race row, `var_short_z` from the equipped-item sum, then the
+    /// class-specific skill fields (`prog_a/b/c/d` = `j.var_short_A/B/C/D`) by
+    /// level breakpoint. Transcribed verbatim from the decompiled switch,
+    /// **including** its redundant double-writes (e.g. classes 5/8 set `C`
+    /// twice) — compatibility-first: do not "simplify" these.
+    ///
+    /// The original's `break`/`return` are equivalent here (the switch is the last
+    /// statement in `f`), so each becomes an early `return` from the per-class
+    /// helper. Panics if the race/item row is absent, mirroring the original NPE.
+    pub fn class_progression(&mut self, tables: &Tables) {
+        let race: Vec<i32> = tables
+            .row(4, i32::from(self.var_byte_j))
+            .expect("h.f: race row (subtype 4) must be loaded")
+            .to_vec();
+        self.var_byte_i = race[3] as i8;
+        self.var_short_z = 0;
+        for k in 0..self.var_int_arr_n.len() {
+            let item_idx = self.var_int_arr_n[k];
+            if item_idx == -1 {
+                continue;
+            }
+            let item = tables
+                .row(1, item_idx)
+                .expect("h.f: item row (subtype 1) must be loaded");
+            self.var_short_z = (i32::from(self.var_short_z) + item[4]) as i16;
+        }
+        match self.var_byte_f {
+            4 => self.hf_class4(&race),
+            3 => self.hf_class3(&race),
+            8 => self.hf_class8(&race),
+            5 => self.hf_class5(&race),
+            1 => self.hf_class1(&race),
+            2 => self.hf_class2(&race),
+            7 => self.hf_class7(&race),
+            6 => self.hf_class6(&race),
+            _ => {}
+        }
+    }
+
+    fn hf_class4(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if race[2] == 1 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 4 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 7 {
+            self.prog_d = 110;
+        }
+        if o != 16 {
+            return;
+        }
+        self.prog_d = 125;
+    }
+
+    fn hf_class3(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_b = 0;
+        }
+        if o == 5 {
+            self.prog_b = 3;
+        }
+        if o == 17 {
+            self.prog_b = 10;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if race[2] == 1 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] == 2 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] == 3 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 6 {
+                self.prog_d = 110;
+            }
+            if o != 15 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if i32::from(self.var_byte_j) == 0 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 5 {
+                self.prog_d = 110;
+            }
+            if o != 15 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 0 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 8 {
+            self.prog_d = 110;
+        }
+        if o != 18 {
+            return;
+        }
+        self.prog_d = 125;
+    }
+
+    fn hf_class8(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 7 {
+            self.prog_c = 115;
+        }
+        if o == 17 {
+            self.prog_c = 130;
+        }
+        if race[2] == 1 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] == 2 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 0 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 8 {
+            self.prog_d = 110;
+        }
+        if o != 18 {
+            return;
+        }
+        self.prog_d = 125;
+    }
+
+    fn hf_class5(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_b = 0;
+        }
+        if o == 5 {
+            self.prog_b = 3;
+        }
+        if o == 17 {
+            self.prog_b = 10;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 7 {
+            self.prog_c = 115;
+        }
+        if o == 17 {
+            self.prog_c = 130;
+        }
+        if race[2] == 1 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] == 2 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 0 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 8 {
+            self.prog_d = 110;
+        }
+        if o != 18 {
+            return;
+        }
+        self.prog_d = 125;
+    }
+
+    fn hf_class1(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_a = 5;
+        }
+        if o == 7 {
+            self.prog_a = 10;
+        }
+        if o == 15 {
+            self.prog_a = 15;
+        }
+        if race[2] == 4 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 7 {
+                self.prog_d = 110;
+            }
+            if o != 16 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if i32::from(self.var_byte_j) != 0 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 5 {
+            self.prog_d = 110;
+        }
+        if o == 15 {
+            self.prog_d = 125;
+        }
+        if o == 1 {
+            self.prog_c = 110;
+        }
+        if o == 5 {
+            self.prog_c = 125;
+        }
+        if o != 15 {
+            return;
+        }
+        self.prog_c = 140;
+    }
+
+    fn hf_class2(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_a = 5;
+        }
+        if o == 7 {
+            self.prog_a = 10;
+        }
+        if o == 15 {
+            self.prog_a = 15;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if race[2] == 2 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 3 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 6 {
+            self.prog_d = 110;
+        }
+        if o != 15 {
+            return;
+        }
+        self.prog_d = 125;
+    }
+
+    fn hf_class7(&mut self, _race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_a = 5;
+        }
+        if o == 7 {
+            self.prog_a = 10;
+        }
+        if o == 15 {
+            self.prog_a = 15;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o != 20 {
+            return;
+        }
+        self.prog_c = 130;
+    }
+
+    fn hf_class6(&mut self, race: &[i32]) {
+        let o = i32::from(self.var_byte_o);
+        if o == 1 {
+            self.prog_b = 0;
+        }
+        if o == 5 {
+            self.prog_b = 3;
+        }
+        if o == 17 {
+            self.prog_b = 10;
+        }
+        if o == 1 {
+            self.prog_c = 100;
+        }
+        if o == 10 {
+            self.prog_c = 115;
+        }
+        if o == 20 {
+            self.prog_c = 130;
+        }
+        if race[2] == 2 {
+            if o == 1 {
+                self.prog_d = 100;
+            }
+            if o == 8 {
+                self.prog_d = 110;
+            }
+            if o != 18 {
+                return;
+            }
+            self.prog_d = 125;
+            return;
+        }
+        if race[2] != 4 {
+            return;
+        }
+        if o == 1 {
+            self.prog_d = 100;
+        }
+        if o == 7 {
+            self.prog_d = 110;
+        }
+        if o != 16 {
+            return;
+        }
+        self.prog_d = 125;
     }
 }
 

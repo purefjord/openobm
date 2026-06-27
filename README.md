@@ -46,6 +46,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `.scr` loader + stat tables | all 32 scripts (entries, code, sections w/ full row values + aux lists) | byte-identical |
 | `.scr` opcode trace | `startup.scr` entry 1, full | byte-identical |
 | `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
+| `h.f` progression | 5957 synthetic actors (8 classes × 20 levels × 37 races, ± inventory) vs **real `h.f` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -112,9 +113,15 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   remaining M8 slices. **Inventory stat application** (`h.b(j,int[])`) is now
   ported too: equipping gear sets the J/K/L/M/N/O/P bonus fields and recomputes
   health/fatigue; consumables restore/queue health & fatigue (clamped) — direct
-  effects unit-tested. The `h.f` class layer + secondary pass and **combat damage
-  resolution** remain (best transcribed against the runtime oracle, since `h.f`
-  is a large content table).
+  effects unit-tested. **`h.f` (class/level/race progression)** is now ported
+  (`Actor::class_progression`): the race-row lookup, the equipped-item `var_short_z`
+  sum, and the per-class skill table (`prog_a/b/c/d`) by level breakpoint, all
+  transcribed verbatim from the decompiled switch (redundant double-writes kept).
+  It is validated against the **real `h.f` bytecode**, not a transcription: a new
+  oracle (`Instrument.dumpHf`) constructs synthetic `j` actors under FreeJ2ME and
+  invokes the genuine private `h.f`, sweeping the whole class/level/race space; the
+  Rust port reproduces all 5957 outputs byte-for-byte (`hf_matches_oracle`). The
+  `h.f` secondary pass and **combat damage resolution** remain.
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as
