@@ -1161,6 +1161,26 @@ fn tick_fields(out: &mut String, a: &formats::Actor) {
         a.prog_d
     )
     .ok();
+    // Movement fields (constant in the non-movement scenarios): position, derived
+    // iso + draw-tile, one tile corner, facing, step timer, target, prev position.
+    write!(
+        out,
+        " {} {} {} {} {} {} {} {} {} {} {} {} {}",
+        a.var_int_arr_b[0],
+        a.var_int_arr_b[1],
+        a.var_int_arr_i[0],
+        a.var_int_arr_i[1],
+        a.var_byte_arr_a[0],
+        a.var_byte_arr_a[1],
+        a.var_byte_arr_b[0],
+        a.var_byte_arr_b[1],
+        a.var_byte_d,
+        a.var_short_g,
+        a.var_int_arr_j[0],
+        a.var_int_arr_e[0],
+        a.var_int_arr_e[1]
+    )
+    .ok();
 }
 
 pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
@@ -1246,12 +1266,33 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
             },
             vec![60, 60, 60],
         ),
+        // Move toward a target (var_int_arr_j): a full-health player (so regen is
+        // skipped) walks +x to the target, then arrival clears it. Exercises
+        // apply_delta (h.d): position, iso/tile recompute, facing, walk-anim timer.
+        (
+            "move",
+            Actor {
+                var_byte_c: 1,
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_short_w: 800, // speed
+                var_int_arr_b: [1000, 1000],
+                var_int_arr_c: [1010, 1005],
+                var_int_arr_d: [1005, 1010],
+                var_int_arr_j: [1200, 1000],
+                ..Default::default()
+            },
+            vec![200, 200, 200, 200, 200],
+        ),
     ];
 
     let mut out = String::new();
     writeln!(
         out,
-        "# tick sweep: scenario frame | b int_a int_e e short_a q r c e_acc i w n bi z A B C D"
+        "# tick sweep: scenario frame | b int_a int_e e short_a q r c e_acc i w n bi z A B C D \
+         bx by ix iy ax ay bbx bby fd sg jx ex ey"
     )?;
     for (name, base, frames) in &scenarios {
         let mut a = base.clone();

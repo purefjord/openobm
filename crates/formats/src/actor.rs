@@ -1000,16 +1000,16 @@ impl Actor {
     /// matching `g.advance(null,…)`'s no-op); `tables` feed the regen's `h.f`.
     ///
     /// **Ported subset (the rest of `h.a` is deferred):** timers, the animation
-    /// advance gate, the player attack-windup (`var_short_a`), the player
-    /// health/fatigue regen (every `var_short_d`/`_f` ms, recomputing via
+    /// advance gate, the move-to-target step (`var_int_arr_j` → `world::apply_delta`
+    /// = `h.d`), the player attack-windup (`var_short_a`), the player health/fatigue
+    /// regen (every `var_short_d`/`_f` ms, recomputing via
     /// [`Actor::class_progression`]), the `var_byte_y` status countdown, and the
-    /// dead-actor corpse timer. The deferred branches — movement toward
-    /// `var_int_arr_j` (`h.d`), the `var_short_k` damage-over-time, the NPC attack
-    /// AI (`h.boolean_b` + melee, armed NPCs hit the unported spell path), the
-    /// `P`/`G` buff-expiry resets, the floating damage text, and corpse removal
-    /// (`b.a`) — assert their gating preconditions so a caller that reaches one
-    /// fails loudly rather than diverging silently. `bl` only gates the (deferred)
-    /// NPC attack.
+    /// dead-actor corpse timer. The deferred branches — the `var_short_k`
+    /// damage-over-time, the NPC attack AI (`h.boolean_b` + melee, armed NPCs hit
+    /// the unported spell path), the `P`/`G` buff-expiry resets, the floating
+    /// damage text, and corpse removal (`b.a`) — assert their gating preconditions
+    /// so a caller that reaches one fails loudly rather than diverging silently.
+    /// `bl` only gates the (deferred) NPC attack.
     pub fn tick(&mut self, l: i64, _bl: bool, model: Option<&mut Anim>, tables: &Tables) {
         self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
         self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
@@ -1025,12 +1025,37 @@ impl Actor {
         }
 
         if self.var_byte_q == 0 {
-            // Movement toward var_int_arr_j (h.d) is not ported yet.
-            debug_assert!(
-                self.var_int_arr_j[0] == -1,
-                "movement-toward-target tick (h.d) not yet ported"
-            );
-            if self.var_byte_c == 1 && self.var_short_a > 0 {
+            if self.var_int_arr_j[0] != -1 {
+                // Move toward var_int_arr_j: step the timer, and once it passes 50
+                // advance toward the target along one axis (x first), clamped to not
+                // overshoot. On arrival, clear the target. Note: unlike the input
+                // move, this does NOT collision-check/revert, and its timer is
+                // gated at `>= 50` and clamped to 100 (vs `> 50`/400 in h.void_a).
+                self.var_short_g = (i64::from(self.var_short_g) + l) as i16;
+                if self.var_short_g >= 50 {
+                    if self.var_short_g > 100 {
+                        self.var_short_g = 100;
+                    }
+                    let n3 = i32::from(self.var_short_w) / (1000 / i32::from(self.var_short_g));
+                    let (mut n, mut n2) = (0, 0);
+                    if self.var_int_arr_b[0] < self.var_int_arr_j[0] {
+                        n = n3.min(self.var_int_arr_j[0] - self.var_int_arr_b[0]);
+                    } else if self.var_int_arr_b[0] > self.var_int_arr_j[0] {
+                        n = (-n3).max(self.var_int_arr_j[0] - self.var_int_arr_b[0]);
+                    } else if self.var_int_arr_b[1] < self.var_int_arr_j[1] {
+                        n2 = n3.min(self.var_int_arr_j[1] - self.var_int_arr_b[1]);
+                    } else if self.var_int_arr_b[1] > self.var_int_arr_j[1] {
+                        n2 = (-n3).max(self.var_int_arr_j[1] - self.var_int_arr_b[1]);
+                    } else {
+                        self.var_int_arr_j[0] = -1;
+                        if self.var_byte_e != 2 {
+                            self.var_byte_e = 0;
+                        }
+                    }
+                    crate::world::apply_delta(self, n, n2); // h.d(j,n,n2)
+                    self.var_short_g = 0;
+                }
+            } else if self.var_byte_c == 1 && self.var_short_a > 0 {
                 self.var_short_a = (i64::from(self.var_short_a) - l) as i16;
                 if self.var_short_a <= 0 {
                     self.var_byte_e = 0;
@@ -1253,5 +1278,27 @@ mod tests {
         a.var_short_n = 1000;
         a.tick(200, false, None, &tables);
         assert_eq!(a.var_short_n, 800);
+    }
+
+    #[test]
+    fn tick_moves_toward_target_then_clears() {
+        let tables = Tables::default();
+        let mut a = full_health_player();
+        a.var_short_w = 800; // speed
+        a.var_int_arr_b = [1000, 1000];
+        a.var_int_arr_c = [1010, 1005];
+        a.var_int_arr_d = [1005, 1010];
+        a.var_int_arr_j = [1200, 1000]; // target: +200 x
+                                        // step size = 800 / (1000/100) = 80; clamped to not overshoot.
+        a.tick(200, false, None, &tables);
+        assert_eq!(a.var_int_arr_b, [1080, 1000]); // moved +80
+        assert_eq!(a.var_int_arr_e, [1000, 1000]); // prev saved
+        assert_eq!(a.var_byte_d, 3); // facing right
+        assert_eq!(a.var_int_arr_i, [10, 130]); // iso recomputed
+        a.tick(200, false, None, &tables); // -> 1160
+        a.tick(200, false, None, &tables); // -> 1200 (min(80,40))
+        assert_eq!(a.var_int_arr_b, [1200, 1000]);
+        a.tick(200, false, None, &tables); // arrival: clears target
+        assert_eq!(a.var_int_arr_j[0], -1);
     }
 }

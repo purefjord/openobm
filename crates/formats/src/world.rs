@@ -40,7 +40,9 @@ pub fn move_in_world(a: &mut Actor, direction: i32, dt: i64, map: &[i8], width: 
 
 /// `h.d(j, n, n2)` — apply a world-space delta to the position and both collision
 /// corners, refresh the derived iso/tile coords, set facing + the walk-anim timer.
-fn apply_delta(a: &mut Actor, dx: i32, dy: i32) {
+/// Shared by the input move ([`move_in_world`], which collision-checks + reverts)
+/// and the per-actor tick's move-to-target (`Actor::tick`, which does **not**).
+pub(crate) fn apply_delta(a: &mut Actor, dx: i32, dy: i32) {
     a.var_int_arr_e = a.var_int_arr_b;
     a.var_int_arr_b = [a.var_int_arr_b[0] + dx, a.var_int_arr_b[1] + dy];
     a.var_int_arr_c = [a.var_int_arr_c[0] + dx, a.var_int_arr_c[1] + dy];
