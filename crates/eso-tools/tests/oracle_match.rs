@@ -15,7 +15,7 @@
 
 use eso_tools::{
     dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm,
-    dump_lang, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
+    dump_lang, dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -135,6 +135,17 @@ fn targeting_matches_oracle() {
 fn collision_matches_oracle() {
     let rust = dump_collision_sweep().expect("rust collision sweep");
     assert_identical(&rust, &oracle("collision_sweep.txt"), "collision");
+}
+
+/// Movement step (`h.void_a`, "moveInWorld") — position-trace parity. The Rust
+/// `move_in_world` over the same scripted (direction, dt) sequence on the same
+/// synthetic collision map the oracle drives through the real method: validates the
+/// step-timer/speed, the world delta + derived iso/tile coords, facing, and the
+/// collision revert (walking into a wall).
+#[test]
+fn move_matches_oracle() {
+    let rust = dump_move_sweep().expect("rust move sweep");
+    assert_identical(&rust, &oracle("move_sweep.txt"), "move");
 }
 
 /// XP / level-up (`h.c` + `h.g`). The Rust port (`Actor::award_xp`) runs the same

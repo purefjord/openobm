@@ -107,6 +107,21 @@ pub struct Actor {
     pub var_byte_arr_d: [i8; 2],
     /// Collision-enabled flag (`j.var_byte_p`, default 1).
     pub var_byte_p: i8,
+    /// Previous world position before the last step (`j.var_int_arr_e`), used to
+    /// revert a blocked move.
+    pub var_int_arr_e: [i32; 2],
+    /// Iso/screen-space position (`j.var_int_arr_i`), derived from `var_int_arr_b`.
+    pub var_int_arr_i: [i32; 2],
+    /// The primary sampled tile (`j.var_byte_arr_a`), chosen by `h.e` for draw order.
+    pub var_byte_arr_a: [i8; 2],
+    /// Collision-box half-extents (`j.var_byte_a`/`_b`) feeding the corner offsets.
+    pub var_byte_a: i8,
+    pub var_byte_b: i8,
+    /// Facing direction (`j.var_byte_d`, default 2), set when stepping.
+    pub var_byte_d: i8,
+    /// Move-step accumulator (`j.var_short_g`) and walk-anim timer (`j.var_short_a`).
+    pub var_short_g: i16,
+    pub var_short_a: i16,
 }
 
 impl Default for Actor {
@@ -168,6 +183,14 @@ impl Default for Actor {
             var_byte_arr_c: [0; 2],
             var_byte_arr_d: [0; 2],
             var_byte_p: 1,
+            var_int_arr_e: [0; 2],
+            var_int_arr_i: [0; 2],
+            var_byte_arr_a: [0; 2],
+            var_byte_a: 0,
+            var_byte_b: 0,
+            var_byte_d: 2,
+            var_short_g: 0,
+            var_short_a: 0,
         }
     }
 }

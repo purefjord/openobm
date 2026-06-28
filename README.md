@@ -52,6 +52,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | combat distance | 229 position-pair cases vs **real `h.a(int[],int[])` bytecode** | byte-identical |
 | targeting | 48 querier cases over a synthetic actor array vs **real `h.j_a` bytecode** | byte-identical |
 | map collision | 19 cases (bounds, solid, 4 slope tiles, OR) vs **real `h.boolean_a` bytecode** | byte-identical |
+| movement step | 22-step position trace (timer/speed, delta, iso/tile, facing, wall-revert) vs **real `h.void_a` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -156,7 +157,14 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   bounds, solid (`1`), and the four directional **slope** tiles (`2..=5`, resolved
   against the corner's sub-tile position). Validated by swapping a synthetic
   collision layer + dims into `b` and diffing 19 crafted cases against the real
-  method (`collision_matches_oracle`).
+  method (`collision_matches_oracle`). The **movement step** (`world::move_in_world`
+  = `h.void_a`, "moveInWorld") is ported on top: the step timer + time-scaled speed,
+  the world delta with derived iso (`var_int_arr_i`) and tile coords + facing, and
+  the collision **revert** (`h.void_c` → `h.a`, rebuilding the box corners via the
+  inverse iso transform `b.b`). Validated by **position-trace parity** — driving the
+  real `h.void_a` through a scripted (direction, dt) sequence on a synthetic map
+  (including walking into a wall) and diffing the per-step state
+  (`move_matches_oracle`).
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

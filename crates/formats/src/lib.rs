@@ -40,4 +40,4 @@ pub use rng::JavaRandom;
 pub use save::{parse_save, serialize_save, Save};
 pub use scr::{parse_scr, ScrProgram};
 pub use vm::{Effect, ScriptVm, Step, StepKind, TextRef};
-pub use world::collides;
+pub use world::{collides, move_in_world, set_position};

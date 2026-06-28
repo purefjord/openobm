@@ -876,6 +876,74 @@ pub fn dump_collision_sweep() -> Result<String> {
     Ok(out)
 }
 
+/// Run the Rust movement port (`world::move_in_world` = `h.void_a`) over the same
+/// scripted (direction, dt) sequence the oracle drives through the real method, on
+/// an identical synthetic collision map — a position trace, diffed step-by-step.
+pub fn dump_move_sweep() -> Result<String> {
+    use formats::{move_in_world, set_position, Actor};
+
+    let mut map = [0i8; 64];
+    map[3 * 8 + 4] = 1; // wall at col 4 of the start tile
+    let (w, h) = (8i32, 8i32);
+
+    let script: [(i32, i64); 22] = [
+        (3, 30),
+        (3, 30),
+        (3, 60),
+        (3, 60),
+        (3, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (1, 60),
+        (2, 60),
+        (2, 60),
+        (4, 60),
+        (4, 60),
+        (4, 60),
+    ];
+
+    let mut a = Actor {
+        var_short_w: 200,
+        var_byte_a: 0,
+        var_byte_b: 0,
+        var_byte_p: 1,
+        ..Default::default()
+    };
+    set_position(&mut a, 384, 384);
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# move: step dir dt | bx by ix iy tbx tby facing g anim"
+    )?;
+    for (i, &(dir, dt)) in script.iter().enumerate() {
+        move_in_world(&mut a, dir, dt, &map, w, h);
+        writeln!(
+            out,
+            "{i} {dir} {dt} | {} {} {} {} {} {} {} {} {}",
+            a.var_int_arr_b[0],
+            a.var_int_arr_b[1],
+            a.var_int_arr_i[0],
+            a.var_int_arr_i[1],
+            a.var_byte_arr_b[0],
+            a.var_byte_arr_b[1],
+            a.var_byte_d,
+            a.var_short_g,
+            a.var_short_a
+        )?;
+    }
+    Ok(out)
+}
+
 /// Run the Rust XP/level-up port (`Actor::award_xp`) over the same sweep the
 /// oracle (`Instrument.dumpXp`) drives through the real `h.c`. First emits the XP
 /// tables from the Rust constants (the oracle emits the real `h.var_short_arr_a/b`,
