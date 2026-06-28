@@ -15,7 +15,7 @@
 
 use eso_tools::{
     dump_cml, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr,
-    dump_scr_trace, dump_xp_sweep,
+    dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -115,6 +115,16 @@ fn combat_matches_oracle() {
 fn dist_matches_oracle() {
     let rust = dump_dist_sweep().expect("rust dist sweep");
     assert_identical(&rust, &oracle("dist_sweep.txt"), "dist");
+}
+
+/// Targeting (`h.j_a`). The Rust `nearest_target` over a synthetic actor array +
+/// querier sweep that the oracle installs into the live `b.var_j_arr_a` and drives
+/// through the real method — validating the skip conditions (dead / same-faction /
+/// same-kind), the nearest-by-distance pick, and tie-breaking.
+#[test]
+fn targeting_matches_oracle() {
+    let rust = dump_targeting_sweep().expect("rust targeting sweep");
+    assert_identical(&rust, &oracle("targeting_sweep.txt"), "targeting");
 }
 
 /// XP / level-up (`h.c` + `h.g`). The Rust port (`Actor::award_xp`) runs the same

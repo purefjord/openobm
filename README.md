@@ -50,6 +50,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | melee combat | 730 attacker/target+seed cases (damage/crit/dodge/block/armor/weapon-tiers + RNG draws) vs **real `h.a` bytecode** | byte-identical |
 | XP / level-up | 560 class×level×race cases + the 52-entry XP tables vs **real `h.c`/`h.g` bytecode** | byte-identical |
 | combat distance | 229 position-pair cases vs **real `h.a(int[],int[])` bytecode** | byte-identical |
+| targeting | 48 querier cases over a synthetic actor array vs **real `h.j_a` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -145,6 +146,10 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   (combat sweep Phase C). Remaining M8 (deferred — they reach the unported `i.java`
   projectile/effects + map/actor-array state, not pure math): the **spell/cast**
   path, the combat **death** branch (animation/sound), and the `h.f` secondary pass.
+  **Targeting** (`nearest_target` = `h.j_a`, nearest valid enemy: skips empty/dead/
+  same-faction/same-kind, closest by distance, earliest index on ties) is ported and
+  validated by installing a synthetic actor array into the live `b.var_j_arr_a` and
+  diffing the chosen slot against the real method (`targeting_matches_oracle`).
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

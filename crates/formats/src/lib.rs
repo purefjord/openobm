@@ -30,7 +30,7 @@ pub mod vm;
 pub use actor::{Actor, Tables};
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};
-pub use combat::{combat_distance, melee_attack, CombatOutcome};
+pub use combat::{combat_distance, melee_attack, nearest_target, CombatOutcome};
 pub use iso::{screen_to_world, world_to_screen, Vec2i};
 pub use jtm::{parse_jtm, JtmMap};
 pub use lang::{parse_lang, parse_lang_file, Lang};

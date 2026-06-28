@@ -764,6 +764,61 @@ pub fn dump_dist_sweep() -> Result<String> {
     Ok(out)
 }
 
+/// Run the Rust targeting port (`formats::nearest_target` = `h.j_a`) over the same
+/// synthetic actor array + querier sweep the oracle installs into `b.var_j_arr_a`
+/// and drives through the real method. Emits the chosen slot index per query.
+pub fn dump_targeting_sweep() -> Result<String> {
+    use formats::{nearest_target, Actor};
+
+    // A synthetic actor slot: (var_byte_c, var_byte_r, var_byte_q, x, y), or empty.
+    type Slot = Option<(i8, i8, i8, i32, i32)>;
+    // Synthetic `b.var_j_arr_a`.
+    let spec: [Slot; 8] = [
+        None,
+        Some((0, 1, 0, 100, 100)),
+        Some((0, 2, 0, 50, 50)),
+        Some((0, 2, 1, 10, 10)), // dead
+        Some((1, 2, 0, 20, 20)),
+        Some((0, 2, 0, 200, 200)),
+        None,
+        Some((0, 3, 0, 60, 60)),
+    ];
+    let actors: Vec<Option<Actor>> = spec
+        .iter()
+        .map(|s| {
+            s.map(|(c, r, qf, x, y)| Actor {
+                var_byte_c: c,
+                var_byte_r: r,
+                var_byte_q: qf,
+                var_int_arr_b: [x, y],
+                ..Default::default()
+            })
+        })
+        .collect();
+
+    let cs = [0i8, 1, 2];
+    let rs = [1i8, 2, 3, 9];
+    let poss = [[0i32, 0], [55, 55], [150, 150], [1000, 1000]];
+
+    let mut out = String::new();
+    writeln!(out, "# targeting: qc qr qx qy | idx")?;
+    for &qc in &cs {
+        for &qr in &rs {
+            for p in poss {
+                let q = Actor {
+                    var_byte_c: qc,
+                    var_byte_r: qr,
+                    var_int_arr_b: p,
+                    ..Default::default()
+                };
+                let idx = nearest_target(&actors, &q).map_or(-1, |i| i as i32);
+                writeln!(out, "{qc} {qr} {} {} | {idx}", p[0], p[1])?;
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Run the Rust XP/level-up port (`Actor::award_xp`) over the same sweep the
 /// oracle (`Instrument.dumpXp`) drives through the real `h.c`. First emits the XP
 /// tables from the Rust constants (the oracle emits the real `h.var_short_arr_a/b`,

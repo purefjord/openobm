@@ -49,6 +49,31 @@ pub fn combat_distance(a: &[i32], b: &[i32]) -> i32 {
     ((n2 + 512) >> 10).abs()
 }
 
+/// `h.java::j_a(j)` — pick the nearest valid target for `q` among `actors`
+/// (the global `b.var_j_arr_a`): skip empty slots, the dead (`var_byte_q == 1`),
+/// same-faction (`var_byte_r`), and same-kind (`var_byte_c`); of the rest, the
+/// closest by [`combat_distance`], with the earliest index winning ties (the
+/// original keeps the first because a later equal distance is `>= n`). Returns the
+/// slot index, or `None`. (`q` is the querying actor, not part of `actors` here;
+/// in the game the same-faction/kind skips also prevent self-targeting.)
+pub fn nearest_target(actors: &[Option<Actor>], q: &Actor) -> Option<usize> {
+    let mut best = 0x00FF_FFFF; // h.j_a's initial `n = 0xFFFFFF`
+    let mut result = None;
+    for (idx, slot) in actors.iter().enumerate() {
+        let Some(a) = slot else { continue };
+        if a.var_byte_q == 1 || a.var_byte_r == q.var_byte_r || a.var_byte_c == q.var_byte_c {
+            continue;
+        }
+        let d = combat_distance(&q.var_int_arr_b, &a.var_int_arr_b);
+        if d >= best {
+            continue;
+        }
+        best = d;
+        result = Some(idx);
+    }
+    result
+}
+
 /// `h.a(j j2, j j3, boolean bl)` — `attacker` strikes `target` (melee path only).
 /// Mutates `target` (HP, dead flag, aggressor back-ref) and advances `rng`
 /// exactly as the original. Returns `(died, outcome)`.
