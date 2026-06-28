@@ -876,6 +876,119 @@ pub fn dump_collision_sweep() -> Result<String> {
     Ok(out)
 }
 
+/// The animation-trace fixture: synthetic `d`-graphs (full branch coverage) plus
+/// two real models (`oh_pc`, `oh_magic`), each driven through a fixed op-script
+/// and diffed against the **real `g` bytecode** invoked on the equivalent graphs.
+///
+/// The op-script is deterministic and identical on both sides (see `AnimOracle.java`):
+/// dump the node list, probe a missing key, then for each distinct key reset +
+/// 20 advances (`g.boolean a(d,int)`), reset + a seek sweep `-2..=12`
+/// (`g.boolean a(d,int,int)`), recording each call's return and resulting cursor.
+const ANIM_ADV_ITERS: i32 = 20;
+const ANIM_SEEK_LO: i32 = -2;
+const ANIM_SEEK_HI: i32 = 12;
+const ANIM_MISS_KEY: i32 = 1000; // outside any i8 key, so lookup always misses
+
+/// Synthetic model specs: `(name, &[(key, looping, frame_count)])`. Cover the
+/// branches the real models may not: single-frame loop/once, multi-frame
+/// loop/once, frame count beyond the seek sweep, multiple groups, duplicate keys
+/// (lookup resolves to the first), and extreme `i8` keys (sign extension).
+#[allow(clippy::type_complexity)]
+const ANIM_SYNTH: &[(&str, &[(i32, bool, usize)])] = &[
+    ("loop1", &[(0, true, 1)]),
+    ("once1", &[(0, false, 1)]),
+    ("loop3", &[(7, true, 3)]),
+    ("once3", &[(7, false, 3)]),
+    ("once5", &[(3, false, 5)]),
+    ("loop7", &[(9, true, 7)]),
+    (
+        "multi",
+        &[(0, true, 2), (1, false, 4), (-56, false, 1), (2, true, 5)],
+    ),
+    ("dupkey", &[(5, false, 3), (5, true, 2)]),
+    (
+        "extremes",
+        &[(-128, false, 2), (127, true, 4), (-1, false, 1)],
+    ),
+];
+
+/// Real models built from their `.cml` via `from_cml` (validates the extraction
+/// of `key`/`loop`/`frame_count` on real data against the transcribed loader).
+const ANIM_REAL: &[&str] = &["/oh_pc.cml", "/oh_magic.cml"];
+
+fn anim_cur(anim: &formats::Anim, key: i32) -> i64 {
+    anim.current_frame(key).map(|c| c as i64).unwrap_or(-1)
+}
+
+/// Emit the canonical op-script trace for one model (must match `AnimOracle.java`).
+fn anim_trace_one(out: &mut String, name: &str, anim: &mut formats::Anim) -> Result<()> {
+    let nodes = anim.nodes().to_vec();
+    writeln!(out, "== {name} ==")?;
+    writeln!(out, "nodes={}", nodes.len())?;
+    for (i, nd) in nodes.iter().enumerate() {
+        writeln!(
+            out,
+            "node {i} key={} loop={} frames={}",
+            nd.key, nd.looping as i32, nd.frame_count
+        )?;
+    }
+    // Missing-key probe: both primitives report "done" (true) on an absent group.
+    let madv = anim.advance(ANIM_MISS_KEY) as i32;
+    let mseek = anim.seek(ANIM_MISS_KEY, 0) as i32;
+    writeln!(out, "miss adv={madv} seek={mseek}")?;
+
+    let mut keys: Vec<i32> = Vec::new();
+    for nd in &nodes {
+        let k = i32::from(nd.key);
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    for k in keys {
+        writeln!(out, "key {k}")?;
+        anim.reset(k);
+        writeln!(out, "  reset cur={}", anim_cur(anim, k))?;
+        for t in 0..ANIM_ADV_ITERS {
+            let r = anim.advance(k) as i32;
+            writeln!(out, "  adv {t} r={r} cur={}", anim_cur(anim, k))?;
+        }
+        anim.reset(k);
+        writeln!(out, "  reset cur={}", anim_cur(anim, k))?;
+        for f in ANIM_SEEK_LO..=ANIM_SEEK_HI {
+            let r = anim.seek(k, f) as i32;
+            writeln!(out, "  seek {f} r={r} cur={}", anim_cur(anim, k))?;
+        }
+    }
+    Ok(())
+}
+
+/// Drive every synthetic + real model through the op-script (the Rust side of
+/// `anim_matches_oracle`).
+pub fn dump_anim_trace(store: &AssetStore) -> Result<String> {
+    use formats::{Anim, AnimNode};
+    let mut out = String::new();
+    writeln!(out, "# anim trace (g.java playback primitives)")?;
+    for (name, spec) in ANIM_SYNTH {
+        let nodes: Vec<AnimNode> = spec
+            .iter()
+            .map(|&(key, looping, frame_count)| AnimNode {
+                key: key as i8,
+                looping,
+                frame_count,
+            })
+            .collect();
+        let mut anim = Anim::from_nodes(nodes);
+        anim_trace_one(&mut out, name, &mut anim)?;
+    }
+    for res in ANIM_REAL {
+        let bytes = store.load(res).with_context(|| format!("loading {res}"))?;
+        let cml = parse_cml(&bytes).with_context(|| format!("parsing {res}"))?;
+        let mut anim = Anim::from_cml(&cml);
+        anim_trace_one(&mut out, res, &mut anim)?;
+    }
+    Ok(out)
+}
+
 /// Run the Rust movement port (`world::move_in_world` = `h.void_a`) over the same
 /// scripted (direction, dt) sequence the oracle drives through the real method, on
 /// an identical synthetic collision map — a position trace, diffed step-by-step.

@@ -14,8 +14,9 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm,
-    dump_lang, dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
+    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
+    dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr, dump_scr_trace,
+    dump_targeting_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -157,4 +158,19 @@ fn move_matches_oracle() {
 fn xp_matches_oracle() {
     let rust = dump_xp_sweep(&fixture_path("hf_tables.txt")).expect("rust xp sweep");
     assert_identical(&rust, &oracle("xp_sweep.txt"), "xp");
+}
+
+/// Animation playback primitives (`g.java`'s frame-cursor overloads). The Rust
+/// `Anim` (`advance`/`seek`/`reset`/`lookup`) runs a fixed op-script over
+/// synthetic `d`-graphs (every loop/clamp/seek branch) plus the real
+/// `oh_pc`/`oh_magic` models; `AnimOracle.java` runs the identical script through
+/// the **real `g.class` bytecode** (the four return-type-distinct `a` overloads,
+/// resolved by descriptor) on equivalent graphs. Byte-identical = the port
+/// reproduces the real advance/seek/reset behavior — including loop wrap,
+/// non-loop clamp+done, seek past-end detection, and the flattened
+/// (key/loop/frame_count) extraction from real `.cml`.
+#[test]
+fn anim_matches_oracle() {
+    let rust = dump_anim_trace(&assets()).expect("rust anim trace");
+    assert_identical(&rust, &oracle("anim_trace.txt"), "anim");
 }

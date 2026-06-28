@@ -15,6 +15,7 @@
 //! - [`asset`]    — resource loading by original `/leading-slash` paths.
 
 pub mod actor;
+pub mod anim;
 pub mod asset;
 pub mod cml;
 pub mod combat;
@@ -29,6 +30,7 @@ pub mod vm;
 pub mod world;
 
 pub use actor::{Actor, Tables};
+pub use anim::{Anim, AnimNode};
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};
 pub use combat::{combat_distance, melee_attack, nearest_target, CombatOutcome};
