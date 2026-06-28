@@ -20,6 +20,8 @@
 //! tables in `h.f` (which are coupled to the `.scr` stat tables) are the next
 //! slices of M8 and are not yet ported.
 
+use crate::anim::Anim;
+
 /// A faithful, scalar subset of `j.java` (the fields the stat math and save
 /// touch). Names mirror the decompiled source; types match Java widths.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +124,30 @@ pub struct Actor {
     /// Move-step accumulator (`j.var_short_g`) and walk-anim timer (`j.var_short_a`).
     pub var_short_g: i16,
     pub var_short_a: i16,
+
+    // --- per-actor tick fields (`h.a(j,long,boolean)`) ---
+    /// Animation frame timer (`j.var_short_b`): advances the sprite every >125ms.
+    pub var_short_b: i16,
+    /// Free-running timer (`j.var_int_a`) and attack-cooldown timer (`j.var_int_e`).
+    pub var_int_a: i32,
+    pub var_int_e: i32,
+    /// Animation state (`j.var_byte_e`); indexes [`ANIM_STATE_OFFSETS`].
+    pub var_byte_e: i8,
+    /// Health/fatigue regen accumulators (`j.var_short_c`/`j.var_short_e`); tick a
+    /// point when they reach the regen rate (`var_short_d`/`var_short_f`).
+    pub var_short_c: i16,
+    pub var_short_e: i16,
+    /// Corpse timer for the dead (`j.var_short_i`).
+    pub var_short_i: i16,
+    /// A status timer flag (`j.var_byte_y`, default -1) + its countdown (`j.var_short_n`).
+    pub var_byte_y: i8,
+    pub var_short_n: i16,
+    /// Move-to target (`j.var_int_arr_j`, default `[-1,-1]`); `[0] != -1` = moving.
+    pub var_int_arr_j: [i32; 2],
+    /// Timed buff duration (`j.G`); on expiry it strips the J..P bonus block.
+    pub g_field: i16,
+    /// Aggression flag (`j.var_byte_z`, default 1); gates the NPC attack AI.
+    pub var_byte_z: i8,
 }
 
 impl Default for Actor {
@@ -191,9 +217,25 @@ impl Default for Actor {
             var_byte_d: 2,
             var_short_g: 0,
             var_short_a: 0,
+            var_short_b: 0,
+            var_int_a: 0,
+            var_int_e: 0,
+            var_byte_e: 0,
+            var_short_c: 0,
+            var_short_e: 0,
+            var_short_i: 0,
+            var_byte_y: -1,
+            var_short_n: 0,
+            var_int_arr_j: [-1, -1],
+            g_field: 0,
+            var_byte_z: 1,
         }
     }
 }
+
+/// `h.var_byte_arr_a`: the per-state animation-group offsets. The actor's current
+/// group is `var_byte_d` (facing) `+ ANIM_STATE_OFFSETS[var_byte_e]` (state).
+pub const ANIM_STATE_OFFSETS: [i8; 8] = [0, 4, 8, 12, 16, 20, 24, 25];
 
 impl Actor {
     /// Recompute max health/fatigue and their regen rates from base attributes,
@@ -951,6 +993,108 @@ impl Actor {
             _ => {}
         }
     }
+
+    /// `h.a(j, long l, boolean bl)` — advance this actor by `l` ms (the per-frame
+    /// per-actor update called from `b.java`'s main loop). `model` is the actor's
+    /// `var_d_a` animation [`Anim`] (its cursor is advanced; `None` = no model,
+    /// matching `g.advance(null,…)`'s no-op); `tables` feed the regen's `h.f`.
+    ///
+    /// **Ported subset (the rest of `h.a` is deferred):** timers, the animation
+    /// advance gate, the player attack-windup (`var_short_a`), the player
+    /// health/fatigue regen (every `var_short_d`/`_f` ms, recomputing via
+    /// [`Actor::class_progression`]), the `var_byte_y` status countdown, and the
+    /// dead-actor corpse timer. The deferred branches — movement toward
+    /// `var_int_arr_j` (`h.d`), the `var_short_k` damage-over-time, the NPC attack
+    /// AI (`h.boolean_b` + melee, armed NPCs hit the unported spell path), the
+    /// `P`/`G` buff-expiry resets, the floating damage text, and corpse removal
+    /// (`b.a`) — assert their gating preconditions so a caller that reaches one
+    /// fails loudly rather than diverging silently. `bl` only gates the (deferred)
+    /// NPC attack.
+    pub fn tick(&mut self, l: i64, _bl: bool, model: Option<&mut Anim>, tables: &Tables) {
+        self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
+        self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
+        self.var_int_e = (i64::from(self.var_int_e) + l) as i32;
+
+        if self.var_short_b > 125 && self.var_byte_q == 0 {
+            if let Some(m) = model {
+                let key = i32::from(self.var_byte_d)
+                    + i32::from(ANIM_STATE_OFFSETS[self.var_byte_e as usize]);
+                m.advance(key);
+            }
+            self.var_short_b = 0;
+        }
+
+        if self.var_byte_q == 0 {
+            // Movement toward var_int_arr_j (h.d) is not ported yet.
+            debug_assert!(
+                self.var_int_arr_j[0] == -1,
+                "movement-toward-target tick (h.d) not yet ported"
+            );
+            if self.var_byte_c == 1 && self.var_short_a > 0 {
+                self.var_short_a = (i64::from(self.var_short_a) - l) as i16;
+                if self.var_short_a <= 0 {
+                    self.var_byte_e = 0;
+                }
+            }
+
+            // The var_short_k damage-over-time is not ported yet.
+            debug_assert!(
+                self.var_short_k <= 0,
+                "DoT (var_short_k) tick not yet ported"
+            );
+            if self.var_byte_w == -47 {
+                self.var_byte_w = -1;
+            }
+            if self.var_byte_y == 2 {
+                self.var_short_n = (i64::from(self.var_short_n) - l) as i16;
+            }
+
+            if self.var_byte_c == 1 {
+                // Player health/fatigue regeneration.
+                if self.var_short_q < self.var_short_o {
+                    self.var_short_c = (i64::from(self.var_short_c) + l) as i16;
+                    if self.var_short_c >= self.var_short_d {
+                        if self.var_short_q < self.var_short_o {
+                            self.var_short_q += 1;
+                        }
+                        self.var_short_c = 0;
+                        self.class_progression(tables);
+                    }
+                }
+                if self.var_short_r < self.var_short_p {
+                    self.var_short_e = (i64::from(self.var_short_e) + l) as i16;
+                    if self.var_short_e >= self.var_short_f {
+                        if self.var_short_r < self.var_short_p {
+                            self.var_short_r += 1;
+                        }
+                        self.var_short_e = 0;
+                        self.class_progression(tables);
+                    }
+                }
+                // The P-buff expiry reset is not ported yet.
+                debug_assert!(self.p_bonus <= 0, "P-buff expiry tick not yet ported");
+            } else {
+                // NPC attack AI (h.boolean_b + melee) is not ported yet; callers
+                // keep non-players non-aggressive in the validated subset.
+                debug_assert!(
+                    self.var_byte_z != 1,
+                    "NPC attack AI tick (h.boolean_b) not yet ported"
+                );
+            }
+
+            // The floating damage text fade (`var_java_lang_String_a != null`) is
+            // not ported yet; this port has no text field, so it is never active.
+            // The G-buff expiry reset is not ported yet.
+            debug_assert!(self.g_field <= 0, "G-buff expiry tick not yet ported");
+        } else {
+            // Dead: corpse timer. Removal (b.a) at >= 250ms is not ported yet.
+            debug_assert!(
+                self.var_short_i < 250,
+                "corpse removal (b.a) tick not yet ported"
+            );
+            self.var_short_i = (i64::from(self.var_short_i) + l) as i16;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1045,5 +1189,69 @@ mod tests {
         assert_eq!(a.var_short_o, 100);
         assert_eq!(a.var_short_q, 1);
         assert_eq!(a.var_byte_r, 1);
+        assert_eq!(a.var_int_arr_j, [-1, -1]);
+        assert_eq!(a.var_byte_y, -1);
+    }
+
+    /// A `Tables` isn't needed for these branches (regen, which calls `h.f`, is
+    /// validated against the real bytecode in `tick_matches_oracle`).
+    fn full_health_player() -> Actor {
+        Actor {
+            var_byte_c: 1,
+            var_short_q: 100,
+            var_short_o: 100,
+            var_short_r: 100,
+            var_short_p: 100,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn tick_timers_and_anim_gate() {
+        let tables = Tables::default();
+        let mut a = full_health_player();
+        a.var_short_b = 100;
+        a.tick(200, false, None, &tables);
+        // var_short_b 100+200=300 > 125 -> reset to 0; other timers accumulate.
+        assert_eq!(a.var_short_b, 0);
+        assert_eq!(a.var_int_a, 200);
+        assert_eq!(a.var_int_e, 200);
+    }
+
+    #[test]
+    fn tick_attack_windup_counts_down_then_idles() {
+        let tables = Tables::default();
+        let mut a = full_health_player();
+        a.var_short_a = 300;
+        a.var_byte_e = 3;
+        a.tick(200, false, None, &tables); // 300-200 = 100, still > 0
+        assert_eq!(a.var_short_a, 100);
+        assert_eq!(a.var_byte_e, 3);
+        a.tick(200, false, None, &tables); // 100-200 = -100 <= 0 -> idle
+        assert_eq!(a.var_byte_e, 0);
+    }
+
+    #[test]
+    fn tick_dead_accumulates_corpse_timer() {
+        let tables = Tables::default();
+        let mut a = Actor {
+            var_byte_q: 1,
+            ..Default::default()
+        };
+        a.tick(60, false, None, &tables);
+        a.tick(60, false, None, &tables);
+        assert_eq!(a.var_short_i, 120);
+        // The dead branch skips the animation gate, so var_short_b just accumulates.
+        assert_eq!(a.var_short_b, 120);
+    }
+
+    #[test]
+    fn tick_vy_timer_counts_down() {
+        let tables = Tables::default();
+        let mut a = full_health_player();
+        a.var_byte_y = 2;
+        a.var_short_n = 1000;
+        a.tick(200, false, None, &tables);
+        assert_eq!(a.var_short_n, 800);
     }
 }

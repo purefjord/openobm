@@ -16,7 +16,7 @@
 use eso_tools::{
     dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
     dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr,
-    dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
+    dump_scr_trace, dump_targeting_sweep, dump_tick_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -188,4 +188,19 @@ fn anim_matches_oracle() {
 fn effects_matches_oracle() {
     let rust = dump_effects_sweep(&assets()).expect("rust effects sweep");
     assert_identical(&rust, &oracle("effects_trace.txt"), "effects");
+}
+
+/// Per-actor tick (`h.a(j,long,boolean)`), ported subset. The Rust [`Actor::tick`]
+/// runs synthetic actors × frame sequences (no model → the anim advance no-ops);
+/// `Instrument.dumpTick` drives the same actors through the **real `h.a` bytecode**
+/// (the regen recompute hitting the live `h.f`/`b.var_e_a`) and dumps the touched
+/// fields per frame. Byte-identical = the port reproduces the timers, animation
+/// advance gate, attack-windup, player health/fatigue regen, `var_byte_y`
+/// countdown, and dead-corpse timer exactly. Reuses `hf_tables.txt` for the regen
+/// `h.f`. (The deferred branches — movement, DoT, NPC AI, buff-expiry, corpse
+/// removal — are out of these scenarios' scope.)
+#[test]
+fn tick_matches_oracle() {
+    let rust = dump_tick_sweep(&fixture_path("hf_tables.txt")).expect("rust tick sweep");
+    assert_identical(&rust, &oracle("tick_trace.txt"), "tick");
 }

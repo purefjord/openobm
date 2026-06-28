@@ -1126,6 +1126,145 @@ pub fn dump_effects_sweep(store: &AssetStore) -> Result<String> {
     Ok(out)
 }
 
+/// Per-actor tick (`h.a(j,long,boolean)`) sweep — the ported subset. Synthetic
+/// actors × frame sequences are run through the Rust [`Actor::tick`] (no model →
+/// the animation advance is a no-op, exactly like `g.advance(null,…)`);
+/// `Instrument.dumpTick` drives the same actors through the **real `h.a` bytecode**
+/// and dumps the touched fields after each frame. Scenarios stay inside the ported
+/// branches (timers, anim-advance gate, attack-windup, player health/fatigue regen
+/// via `h.f`, the `var_byte_y` countdown, the dead-corpse timer) and avoid the
+/// deferred ones (movement, DoT, NPC AI, buff-expiry, corpse removal).
+///
+/// `tables_path` is the captured `hf_tables.txt` (the regen recompute calls `h.f`).
+fn tick_fields(out: &mut String, a: &formats::Actor) {
+    use std::fmt::Write as _;
+    write!(
+        out,
+        " {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+        a.var_short_b,
+        a.var_int_a,
+        a.var_int_e,
+        a.var_byte_e,
+        a.var_short_a,
+        a.var_short_q,
+        a.var_short_r,
+        a.var_short_c,
+        a.var_short_e,
+        a.var_short_i,
+        a.var_byte_w,
+        a.var_short_n,
+        a.var_byte_i,
+        a.var_short_z,
+        a.prog_a,
+        a.prog_b,
+        a.prog_c,
+        a.prog_d
+    )
+    .ok();
+}
+
+pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
+    use formats::Actor;
+
+    let text = std::fs::read_to_string(tables_path)
+        .with_context(|| format!("reading tables fixture {tables_path}"))?;
+    let tables = parse_tables(&text)?;
+
+    // (name, actor, frames). Each actor stays in the ported subset.
+    let scenarios: Vec<(&str, Actor, Vec<i64>)> = vec![
+        // Timers + anim-advance gate: player at full health, no windup/move target.
+        (
+            "timers",
+            Actor {
+                var_byte_c: 1,
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_short_b: 100,
+                var_byte_e: 2,
+                ..Default::default()
+            },
+            vec![200, 200, 200],
+        ),
+        // Player attack-windup: var_short_a counts down, then var_byte_e -> 0.
+        (
+            "windup",
+            Actor {
+                var_byte_c: 1,
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_short_a: 500,
+                var_byte_e: 3,
+                ..Default::default()
+            },
+            vec![200, 200, 200],
+        ),
+        // Player health + fatigue regen (ticks via h.f every var_short_d/_f ms).
+        (
+            "regen",
+            Actor {
+                var_byte_c: 1,
+                var_byte_f: 1,
+                var_byte_o: 5,
+                var_byte_j: 1,
+                var_int_arr_n: [-1; 8],
+                var_short_q: 10,
+                var_short_o: 100,
+                var_short_d: 300,
+                var_short_r: 10,
+                var_short_p: 100,
+                var_short_f: 300,
+                ..Default::default()
+            },
+            vec![200, 200, 200, 200],
+        ),
+        // var_byte_y == 2 status countdown.
+        (
+            "vy_timer",
+            Actor {
+                var_byte_c: 1,
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_byte_y: 2,
+                var_short_n: 1000,
+                ..Default::default()
+            },
+            vec![200, 200],
+        ),
+        // Dead-actor corpse timer (kept < 250 so corpse removal isn't reached).
+        (
+            "dead",
+            Actor {
+                var_byte_c: 1,
+                var_byte_q: 1,
+                ..Default::default()
+            },
+            vec![60, 60, 60],
+        ),
+    ];
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# tick sweep: scenario frame | b int_a int_e e short_a q r c e_acc i w n bi z A B C D"
+    )?;
+    for (name, base, frames) in &scenarios {
+        let mut a = base.clone();
+        for (fi, &l) in frames.iter().enumerate() {
+            a.tick(l, false, None, &tables);
+            write!(out, "{name} {fi} |")?;
+            tick_fields(&mut out, &a);
+            out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
 /// Run the Rust movement port (`world::move_in_world` = `h.void_a`) over the same
 /// scripted (direction, dt) sequence the oracle drives through the real method, on
 /// an identical synthetic collision map — a position trace, diffed step-by-step.
