@@ -1200,6 +1200,19 @@ fn tick_fields(out: &mut String, a: &formats::Actor) {
         a.g_field
     )
     .ok();
+    // Floating-text fields: fade timer, rise position Q/R, color + decrement, and
+    // whether the text is still active (1/0).
+    write!(
+        out,
+        " {} {} {} {} {} {}",
+        a.var_short_h,
+        a.q_field,
+        a.r_field,
+        a.var_int_c,
+        a.var_int_d,
+        i32::from(a.floating_text.is_some())
+    )
+    .ok();
 }
 
 pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
@@ -1359,13 +1372,33 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
             },
             vec![200, 200, 200],
         ),
+        // Floating damage text fade: raise Q + fade var_int_c each >50ms step, then
+        // clear once the color reaches 0.
+        (
+            "text",
+            Actor {
+                var_byte_c: 1,
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                floating_text: Some("42".to_string()),
+                q_field: 100,
+                r_field: 100,
+                var_int_c: 10,
+                var_int_d: 4,
+                ..Default::default()
+            },
+            vec![200, 200, 200, 200],
+        ),
     ];
 
     let mut out = String::new();
     writeln!(
         out,
         "# tick sweep: scenario frame | b int_a int_e e short_a q r c e_acc i w n bi z A B C D \
-         bx by ix iy ax ay bbx bby fd sg jx ex ey P J K L M N H O sj so sd G"
+         bx by ix iy ax ay bbx bby fd sg jx ex ey P J K L M N H O sj so sd G \
+         sh Q R ic id txt"
     )?;
     for (name, base, frames) in &scenarios {
         let mut a = base.clone();

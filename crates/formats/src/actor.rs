@@ -152,6 +152,18 @@ pub struct Actor {
     /// The actor's attached effect-pool slot (`j.var_byte_h`, default -1); cleared
     /// when a buff expires.
     pub var_byte_h: i8,
+
+    // --- floating damage text (the rising number over an actor) ---
+    /// The text to display (`j.var_java_lang_String_a`); `None` = no active text.
+    /// Only its presence drives the tick; the content is set by the combat/UI code.
+    pub floating_text: Option<String>,
+    /// Fade timer (`j.var_short_h`), rise position (`j.Q`/`j.R`), and the color
+    /// (`j.var_int_c`, default 0xFF0000) decremented by `j.var_int_d` each step.
+    pub var_short_h: i16,
+    pub q_field: i16,
+    pub r_field: i16,
+    pub var_int_c: i32,
+    pub var_int_d: i32,
 }
 
 impl Default for Actor {
@@ -234,6 +246,12 @@ impl Default for Actor {
             g_field: 0,
             var_byte_z: 1,
             var_byte_h: -1,
+            floating_text: None,
+            var_short_h: 0,
+            q_field: 0,
+            r_field: 0,
+            var_int_c: 0xFF_0000,
+            var_int_d: 0,
         }
     }
 }
@@ -1125,8 +1143,25 @@ impl Actor {
                 );
             }
 
-            // The floating damage text fade (`var_java_lang_String_a != null`) is
-            // not ported yet; this port has no text field, so it is never active.
+            // Floating damage text: while text is shown, raise it (`Q -= 2`) and
+            // fade its color (`var_int_c -= var_int_d`) every >50ms; clear it once
+            // the color runs out or it has risen more than 20px.
+            if self.floating_text.is_some() {
+                self.var_short_h = (i64::from(self.var_short_h) + l) as i16;
+                if self.var_short_h > 50 {
+                    self.q_field = (i32::from(self.q_field) - 2) as i16;
+                    self.var_int_c -= self.var_int_d;
+                    if self.var_int_c <= 0
+                        || (i32::from(self.r_field) - i32::from(self.q_field)).abs() > 20
+                    {
+                        self.var_int_c = 0;
+                        self.q_field = 0;
+                        self.r_field = 0;
+                        self.floating_text = None;
+                    }
+                    self.var_short_h = 0;
+                }
+            }
 
             // G-buff expiry: a countdown that strips the bonus block on reaching 0
             // (applies to all alive actors, not just the player).
