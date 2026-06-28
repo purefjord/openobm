@@ -989,6 +989,143 @@ pub fn dump_anim_trace(store: &AssetStore) -> Result<String> {
     Ok(out)
 }
 
+/// `i.a(long)` effect-pool sweep. Crafted pool images × frame sequences are run
+/// through the Rust [`Effects::update`] over the real `/oh_magic.cml` model and an
+/// identical synthetic 25-actor array; `Instrument.dumpEffects` installs the same
+/// images into the **live `i.var_short_arr_a`** and drives the **real `i.a(long)`
+/// bytecode**, dumping the 99-`short` pool after each frame. Scenarios are built so
+/// the projectile hit test (`collision_hit`) never fires melee (firer + same-faction
+/// actors), isolating the timer / frame-step (`g.seek`) / movement / homing /
+/// lifetime logic. Must match `dump_effects_sweep` line-for-line.
+const EFFECTS_FIRER_C: i32 = 1; // player at slot 0
+const EFFECTS_ANCHOR_C: i32 = 2; // homing anchor at slot 1
+
+/// `(slot_offset, [9 fields])` — fields are cast to `i16` (matching the pool).
+type EffectSlot = (usize, [i32; 9]);
+
+/// `0xFFFFF000 | c<<8 | kind`: the actor-homing `+0` form (truncated to `short`
+/// when written into the pool image, matching `i.a`'s `(short)` cast).
+fn effects_homing(c: i32, kind: i32) -> i32 {
+    (0xFFFF_F000u32 as i32) | (c << 8) | kind
+}
+
+fn dump_effects_pool(out: &mut String, l: i64, pool: &[i16; formats::effects::POOL_LEN]) {
+    use std::fmt::Write as _;
+    write!(out, "frame l={l}:").ok();
+    for v in pool.iter() {
+        write!(out, " {v}").ok();
+    }
+    out.push('\n');
+}
+
+pub fn dump_effects_sweep(store: &AssetStore) -> Result<String> {
+    use formats::effects::POOL_LEN;
+    use formats::{Actor, Anim, Effects, JavaRandom};
+
+    // The real /oh_magic.cml model the live `i.var_d_a` holds.
+    let bytes = store
+        .load("/oh_magic.cml")
+        .context("loading /oh_magic.cml")?;
+    let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("parsing oh_magic: {e}"))?;
+
+    // Synthetic 25-actor array, all faction 0 so projectiles never hit (no melee).
+    let firer = Actor {
+        var_byte_c: EFFECTS_FIRER_C as i8,
+        var_byte_r: 0,
+        var_byte_q: 0,
+        var_int_arr_b: [1000, 1000],
+        ..Default::default()
+    };
+    let anchor = Actor {
+        var_byte_c: EFFECTS_ANCHOR_C as i8,
+        var_byte_r: 0,
+        var_byte_q: 0,
+        var_int_arr_b: [3000, 1500],
+        ..Default::default()
+    };
+
+    let h1 = effects_homing(EFFECTS_FIRER_C, 0);
+    let h_right = effects_homing(EFFECTS_FIRER_C, 4);
+    let h_swing = effects_homing(EFFECTS_FIRER_C, 11);
+    let h_anchor8 = effects_homing(EFFECTS_ANCHOR_C, 8);
+    let h_down = effects_homing(EFFECTS_FIRER_C, 2);
+
+    // (name, slots, frames). Fields: [kind/+0, x, y, stepT, frameC, ox, oy, life, lifeT].
+    let f200_4: Vec<i64> = vec![200; 4];
+    let f200_6: Vec<i64> = vec![200; 6];
+    let f200_8: Vec<i64> = vec![200; 8];
+    let f200_14: Vec<i64> = vec![200; 14];
+    let f200_16: Vec<i64> = vec![200; 16];
+    let f_world9: Vec<i64> = vec![60, 60, 200, 200, 200, 200, 200, 200, 200, 200];
+    let scenarios: Vec<(&str, Vec<EffectSlot>, &Vec<i64>)> = vec![
+        (
+            "world9_life",
+            vec![(0, [9, 100, 200, 0, 0, 100, 200, 600, 0])],
+            &f_world9,
+        ),
+        (
+            "world9_nolife",
+            vec![(0, [9, 0, 0, 0, 0, 0, 0, 0, 0])],
+            &f200_4,
+        ),
+        (
+            "proj_up",
+            vec![(0, [h1, 1000, 1000, 0, 0, 1000, 1000, 0, 0])],
+            &f200_16,
+        ),
+        (
+            "proj_right",
+            vec![(0, [h_right, 1000, 1000, 0, 0, 1000, 1000, 0, 0])],
+            &f200_16,
+        ),
+        (
+            "swing_up",
+            vec![(0, [h_swing, 1000, 1000, 0, 0, 1000, 1000, 0, 0])],
+            &f200_8,
+        ),
+        (
+            "homing8",
+            vec![(0, [h_anchor8, 0, 0, 0, 0, 0, 0, 0, 0])],
+            &f200_6,
+        ),
+        (
+            "multi",
+            vec![
+                (0, [9, 100, 200, 0, 0, 100, 200, 600, 0]),
+                (9, [h_down, 1000, 1000, 0, 0, 1000, 1000, 0, 0]),
+            ],
+            &f200_14,
+        ),
+    ];
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# effects trace (i.a(long) over the /oh_magic.cml model)"
+    )?;
+    for (name, slots, frames) in &scenarios {
+        writeln!(out, "# scenario {name}")?;
+        let mut model = Anim::from_cml(&cml);
+        let mut actors: Vec<Option<Actor>> = (0..25).map(|_| None).collect();
+        actors[0] = Some(firer.clone());
+        actors[1] = Some(anchor.clone());
+        let mut rng = JavaRandom::new(0x00C0_FFEE);
+
+        let mut raw = [-1i16; POOL_LEN];
+        for (off, fields) in slots {
+            for (k, v) in fields.iter().enumerate() {
+                raw[off + k] = *v as i16;
+            }
+        }
+        let mut e = Effects::from_raw(raw);
+        for &l in frames.iter() {
+            e.update(l, &mut model, &mut actors, &mut rng);
+            dump_effects_pool(&mut out, l, e.raw());
+        }
+    }
+    Ok(out)
+}
+
 /// Run the Rust movement port (`world::move_in_world` = `h.void_a`) over the same
 /// scripted (direction, dt) sequence the oracle drives through the real method, on
 /// an identical synthetic collision map — a position trace, diffed step-by-step.

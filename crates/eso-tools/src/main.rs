@@ -9,9 +9,9 @@
 use anyhow::{bail, Result};
 use eso_tools::{
     dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
-    dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_move_sweep, dump_scr, dump_scr_exec,
-    dump_scr_trace, dump_targeting_sweep, dump_xp_sweep, save_roundtrip, scr_coverage,
-    summarize_jtm,
+    dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_move_sweep,
+    dump_scr, dump_scr_exec, dump_scr_trace, dump_targeting_sweep, dump_xp_sweep, save_roundtrip,
+    scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -44,6 +44,7 @@ fn main() -> Result<()> {
         "collision-sweep" => dump_collision_sweep()?,
         "move-sweep" => dump_move_sweep()?,
         "anim-trace" => dump_anim_trace(&store)?,
+        "effects-sweep" => dump_effects_sweep(&store)?,
         // xp-sweep takes the oracle's table dump file path (for the level-up h.f).
         "xp-sweep" => dump_xp_sweep(&args[1])?,
         "scr-trace" => {

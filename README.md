@@ -54,6 +54,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | map collision | 19 cases (bounds, solid, 4 slope tiles, OR) vs **real `h.boolean_a` bytecode** | byte-identical |
 | movement step | 22-step position trace (timer/speed, delta, iso/tile, facing, wall-revert) vs **real `h.void_a` bytecode** | byte-identical |
 | animation playback | 2336-line op-trace (advance/seek/reset over synthetic + real `oh_pc`/`oh_magic` graphs) vs **real `g.class` bytecode** | byte-identical |
+| effect pool | 7-scenario × per-frame pool trace (timers, frame-step, projectile move/convert, homing, lifetime) vs **real `i.a(long)` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior

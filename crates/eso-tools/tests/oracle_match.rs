@@ -15,8 +15,8 @@
 
 use eso_tools::{
     dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
-    dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr, dump_scr_trace,
-    dump_targeting_sweep, dump_xp_sweep,
+    dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr,
+    dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -173,4 +173,19 @@ fn xp_matches_oracle() {
 fn anim_matches_oracle() {
     let rust = dump_anim_trace(&assets()).expect("rust anim trace");
     assert_identical(&rust, &oracle("anim_trace.txt"), "anim");
+}
+
+/// Effect pool update (`i.a(long)`). The Rust [`Effects::update`] runs crafted
+/// pool images × frame sequences over the real `/oh_magic.cml` model + a synthetic
+/// 25-actor array; `Instrument.dumpEffects` installs the same images into the live
+/// `i.var_short_arr_a` and drives the **real `i.a(long)` bytecode**, dumping the 99
+/// shorts per frame. Byte-identical = the port reproduces the per-frame timers,
+/// `g.seek` frame-stepping, projectile movement/conversion, actor-homing, and
+/// lifetime cycling — including the held-frame `0xFF00` mask and the post-clear
+/// read quirk. Scenarios avoid melee (same-faction actors), so the (separately
+/// validated) `collision_hit` path stays deterministic.
+#[test]
+fn effects_matches_oracle() {
+    let rust = dump_effects_sweep(&assets()).expect("rust effects sweep");
+    assert_identical(&rust, &oracle("effects_trace.txt"), "effects");
 }
