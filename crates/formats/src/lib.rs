@@ -26,6 +26,7 @@ pub mod rng;
 pub mod save;
 pub mod scr;
 pub mod vm;
+pub mod world;
 
 pub use actor::{Actor, Tables};
 pub use asset::AssetStore;
@@ -39,3 +40,4 @@ pub use rng::JavaRandom;
 pub use save::{parse_save, serialize_save, Save};
 pub use scr::{parse_scr, ScrProgram};
 pub use vm::{Effect, ScriptVm, Step, StepKind, TextRef};
+pub use world::collides;

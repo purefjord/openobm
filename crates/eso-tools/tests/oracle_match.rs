@@ -14,8 +14,8 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_cml, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr,
-    dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
+    dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm,
+    dump_lang, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -125,6 +125,16 @@ fn dist_matches_oracle() {
 fn targeting_matches_oracle() {
     let rust = dump_targeting_sweep().expect("rust targeting sweep");
     assert_identical(&rust, &oracle("targeting_sweep.txt"), "targeting");
+}
+
+/// Map collision (`h.boolean_a`). The Rust `collides` over a synthetic collision
+/// layer + crafted sample cells the oracle swaps into `b.var_byte_arr_a`/dims and
+/// drives through the real method — validating bounds, solid (`1`), and the four
+/// directional slope tiles (`2..=5`) against sub-tile position.
+#[test]
+fn collision_matches_oracle() {
+    let rust = dump_collision_sweep().expect("rust collision sweep");
+    assert_identical(&rust, &oracle("collision_sweep.txt"), "collision");
 }
 
 /// XP / level-up (`h.c` + `h.g`). The Rust port (`Actor::award_xp`) runs the same

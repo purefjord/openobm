@@ -819,6 +819,63 @@ pub fn dump_targeting_sweep() -> Result<String> {
     Ok(out)
 }
 
+/// Run the Rust map-collision port (`formats::collides` = `h.boolean_a`) over the
+/// same synthetic collision layer + crafted-sample cases the oracle swaps into
+/// `b.var_byte_arr_a`/dims and drives through the real method. Emits per-case blocks.
+pub fn dump_collision_sweep() -> Result<String> {
+    use formats::{collides, Actor};
+
+    // 8x8 collision layer matching the oracle's: 1=solid, 2..=5 = slope tiles.
+    let mut map = [0i8; 64];
+    map[2 * 8 + 3] = 1;
+    map[3 * 8 + 3] = 2;
+    map[3 * 8 + 4] = 3;
+    map[4 * 8 + 3] = 4;
+    map[4 * 8 + 4] = 5;
+    let (w, h) = (8i32, 8i32);
+
+    // {p, bRow,bCol,bWx,bWy, cRow,cCol,cWx,cWy, dRow,dCol,dWx,dWy}
+    let cases: [[i32; 13]; 19] = [
+        [0, 2, 3, 0, 0, 2, 3, 0, 0, 2, 3, 0, 0],
+        [1, -1, 3, 0, 0, -1, 3, 0, 0, -1, 3, 0, 0],
+        [1, 2, 8, 0, 0, 2, 8, 0, 0, 2, 8, 0, 0],
+        [1, 8, 3, 0, 0, 8, 3, 0, 0, 8, 3, 0, 0],
+        [1, 2, -1, 0, 0, 2, -1, 0, 0, 2, -1, 0, 0],
+        [1, 2, 3, 0, 0, 2, 3, 0, 0, 2, 3, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 3, 3, 10, 20, 3, 3, 10, 20, 3, 3, 10, 20],
+        [1, 3, 3, 20, 10, 3, 3, 20, 10, 3, 3, 20, 10],
+        [1, 3, 3, 15, 15, 3, 3, 15, 15, 3, 3, 15, 15],
+        [1, 3, 4, 10, 20, 3, 4, 10, 20, 3, 4, 10, 20],
+        [1, 3, 4, 20, 10, 3, 4, 20, 10, 3, 4, 20, 10],
+        [1, 4, 3, 10, 20, 4, 3, 10, 20, 4, 3, 10, 20],
+        [1, 4, 3, 20, 10, 4, 3, 20, 10, 4, 3, 20, 10],
+        [1, 4, 4, 10, 20, 4, 4, 10, 20, 4, 4, 10, 20],
+        [1, 4, 4, 20, 10, 4, 4, 20, 10, 4, 4, 20, 10],
+        [1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0],
+        [1, 0, 0, 0, 0, 3, 3, 10, 20, 0, 0, 0, 0],
+    ];
+
+    let mut out = String::new();
+    writeln!(out, "# collision: case | blocks")?;
+    for (i, cc) in cases.iter().enumerate() {
+        let a = Actor {
+            var_byte_p: cc[0] as i8,
+            var_byte_arr_b: [cc[1] as i8, cc[2] as i8],
+            var_int_arr_b: [cc[3], cc[4]],
+            var_byte_arr_c: [cc[5] as i8, cc[6] as i8],
+            var_int_arr_c: [cc[7], cc[8]],
+            var_byte_arr_d: [cc[9] as i8, cc[10] as i8],
+            var_int_arr_d: [cc[11], cc[12]],
+            ..Default::default()
+        };
+        let blocks = i32::from(collides(&a, &map, w, h));
+        writeln!(out, "{i} | {blocks}")?;
+    }
+    Ok(out)
+}
+
 /// Run the Rust XP/level-up port (`Actor::award_xp`) over the same sweep the
 /// oracle (`Instrument.dumpXp`) drives through the real `h.c`. First emits the XP
 /// tables from the Rust constants (the oracle emits the real `h.var_short_arr_a/b`,

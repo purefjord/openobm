@@ -51,6 +51,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | XP / level-up | 560 class×level×race cases + the 52-entry XP tables vs **real `h.c`/`h.g` bytecode** | byte-identical |
 | combat distance | 229 position-pair cases vs **real `h.a(int[],int[])` bytecode** | byte-identical |
 | targeting | 48 querier cases over a synthetic actor array vs **real `h.j_a` bytecode** | byte-identical |
+| map collision | 19 cases (bounds, solid, 4 slope tiles, OR) vs **real `h.boolean_a` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -150,6 +151,12 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   same-faction/same-kind, closest by distance, earliest index on ties) is ported and
   validated by installing a synthetic actor array into the live `b.var_j_arr_a` and
   diffing the chosen slot against the real method (`targeting_matches_oracle`).
+  **Map collision** (`world::collides` = `h.boolean_a`) — the first movement
+  primitive (M10): an actor's three sampled cells against the collision layer, with
+  bounds, solid (`1`), and the four directional **slope** tiles (`2..=5`, resolved
+  against the corner's sub-tile position). Validated by swapping a synthetic
+  collision layer + dims into `b` and diffing 19 crafted cases against the real
+  method (`collision_matches_oracle`).
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as

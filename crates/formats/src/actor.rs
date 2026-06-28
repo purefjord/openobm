@@ -94,6 +94,19 @@ pub struct Actor {
     pub var_j_a_set: bool,
     /// World position `[x, y]` (`j.var_int_arr_b`); only `[0]`/`[1]` feed combat.
     pub var_int_arr_b: [i32; 2],
+
+    // --- movement / map-collision sample state ---
+    /// Collision-box corner world positions (`j.var_int_arr_c`/`_d`); their low 7
+    /// bits give the sub-tile position used for slope tiles.
+    pub var_int_arr_c: [i32; 2],
+    pub var_int_arr_d: [i32; 2],
+    /// The three sampled tile coordinates `[row, col]` (`j.var_byte_arr_b/c/d`),
+    /// i.e. each world corner `>> 7`.
+    pub var_byte_arr_b: [i8; 2],
+    pub var_byte_arr_c: [i8; 2],
+    pub var_byte_arr_d: [i8; 2],
+    /// Collision-enabled flag (`j.var_byte_p`, default 1).
+    pub var_byte_p: i8,
 }
 
 impl Default for Actor {
@@ -149,6 +162,12 @@ impl Default for Actor {
             var_int_arr_l: None,
             var_j_a_set: false,
             var_int_arr_b: [0; 2],
+            var_int_arr_c: [0; 2],
+            var_int_arr_d: [0; 2],
+            var_byte_arr_b: [0; 2],
+            var_byte_arr_c: [0; 2],
+            var_byte_arr_d: [0; 2],
+            var_byte_p: 1,
         }
     }
 }
