@@ -1181,6 +1181,25 @@ fn tick_fields(out: &mut String, a: &formats::Actor) {
         a.var_int_arr_e[1]
     )
     .ok();
+    // Buff-block fields (constant outside the P/G scenarios): the J..P bonus block
+    // + H/O, the P-buff timer, recomputed max-health + rate, the G-buff duration.
+    write!(
+        out,
+        " {} {} {} {} {} {} {} {} {} {} {} {}",
+        a.p_bonus,
+        a.j_bonus,
+        a.k_bonus,
+        a.l_bonus,
+        a.m_bonus,
+        a.n_bonus,
+        a.h_field,
+        a.o_bonus,
+        a.var_short_j,
+        a.var_short_o,
+        a.var_short_d,
+        a.g_field
+    )
+    .ok();
 }
 
 pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
@@ -1286,18 +1305,73 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
             },
             vec![200, 200, 200, 200, 200],
         ),
+        // P-buff expiry: a full-health player (regen skipped) whose buff timer laps
+        // the duration (P) -> strip the J..P/H block, recompute (O was set), h.f.
+        (
+            "pbuff",
+            Actor {
+                var_byte_c: 1,
+                var_byte_f: 1,
+                var_byte_o: 5,
+                var_byte_j: 1,
+                var_int_arr_n: [-1; 8],
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_short_s: 30,
+                var_short_x: 30,
+                p_bonus: 100,
+                j_bonus: 5,
+                k_bonus: 3,
+                l_bonus: 2,
+                m_bonus: 4,
+                n_bonus: 1,
+                o_bonus: 10,
+                ..Default::default()
+            },
+            vec![200, 200, 200],
+        ),
+        // G-buff expiry: countdown that strips the same block on reaching 0.
+        (
+            "gbuff",
+            Actor {
+                var_byte_c: 2, // any actor (G is not player-gated)
+                var_byte_z: 0, // non-aggressive: skip the (deferred) NPC AI branch
+                var_byte_f: 1,
+                var_byte_o: 5,
+                var_byte_j: 1,
+                var_int_arr_n: [-1; 8],
+                var_short_q: 100,
+                var_short_o: 100,
+                var_short_r: 100,
+                var_short_p: 100,
+                var_short_s: 30,
+                var_short_x: 30,
+                g_field: 300,
+                j_bonus: 5,
+                k_bonus: 3,
+                l_bonus: 2,
+                m_bonus: 4,
+                n_bonus: 1,
+                o_bonus: 10,
+                ..Default::default()
+            },
+            vec![200, 200, 200],
+        ),
     ];
 
     let mut out = String::new();
     writeln!(
         out,
         "# tick sweep: scenario frame | b int_a int_e e short_a q r c e_acc i w n bi z A B C D \
-         bx by ix iy ax ay bbx bby fd sg jx ex ey"
+         bx by ix iy ax ay bbx bby fd sg jx ex ey P J K L M N H O sj so sd G"
     )?;
     for (name, base, frames) in &scenarios {
         let mut a = base.clone();
+        let mut fx = formats::Effects::new();
         for (fi, &l) in frames.iter().enumerate() {
-            a.tick(l, false, None, &tables);
+            a.tick(l, false, None, &tables, &mut fx);
             write!(out, "{name} {fi} |")?;
             tick_fields(&mut out, &a);
             out.push('\n');

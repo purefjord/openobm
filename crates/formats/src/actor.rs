@@ -21,6 +21,7 @@
 //! slices of M8 and are not yet ported.
 
 use crate::anim::Anim;
+use crate::effects::Effects;
 
 /// A faithful, scalar subset of `j.java` (the fields the stat math and save
 /// touch). Names mirror the decompiled source; types match Java widths.
@@ -148,6 +149,9 @@ pub struct Actor {
     pub g_field: i16,
     /// Aggression flag (`j.var_byte_z`, default 1); gates the NPC attack AI.
     pub var_byte_z: i8,
+    /// The actor's attached effect-pool slot (`j.var_byte_h`, default -1); cleared
+    /// when a buff expires.
+    pub var_byte_h: i8,
 }
 
 impl Default for Actor {
@@ -229,6 +233,7 @@ impl Default for Actor {
             var_int_arr_j: [-1, -1],
             g_field: 0,
             var_byte_z: 1,
+            var_byte_h: -1,
         }
     }
 }
@@ -1010,7 +1015,14 @@ impl Actor {
     /// damage text, and corpse removal (`b.a`) — assert their gating preconditions
     /// so a caller that reaches one fails loudly rather than diverging silently.
     /// `bl` only gates the (deferred) NPC attack.
-    pub fn tick(&mut self, l: i64, _bl: bool, model: Option<&mut Anim>, tables: &Tables) {
+    pub fn tick(
+        &mut self,
+        l: i64,
+        _bl: bool,
+        model: Option<&mut Anim>,
+        tables: &Tables,
+        effects: &mut Effects,
+    ) {
         self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
         self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
         self.var_int_e = (i64::from(self.var_int_e) + l) as i32;
@@ -1096,8 +1108,14 @@ impl Actor {
                         self.class_progression(tables);
                     }
                 }
-                // The P-buff expiry reset is not ported yet.
-                debug_assert!(self.p_bonus <= 0, "P-buff expiry tick not yet ported");
+                // P-buff expiry: when the buff timer reaches its duration, strip
+                // the bonus block and recompute. (Player-only — inside `c == 1`.)
+                if self.p_bonus > 0 {
+                    if self.var_short_j >= self.p_bonus {
+                        self.strip_buffs(effects, tables);
+                    }
+                    self.var_short_j = (i64::from(self.var_short_j) + l) as i16;
+                }
             } else {
                 // NPC attack AI (h.boolean_b + melee) is not ported yet; callers
                 // keep non-players non-aggressive in the validated subset.
@@ -1109,8 +1127,17 @@ impl Actor {
 
             // The floating damage text fade (`var_java_lang_String_a != null`) is
             // not ported yet; this port has no text field, so it is never active.
-            // The G-buff expiry reset is not ported yet.
-            debug_assert!(self.g_field <= 0, "G-buff expiry tick not yet ported");
+
+            // G-buff expiry: a countdown that strips the bonus block on reaching 0
+            // (applies to all alive actors, not just the player).
+            if self.g_field > 0 {
+                self.g_field = (i64::from(self.g_field) - l) as i16;
+                if self.g_field <= 0 {
+                    self.strip_buffs(effects, tables);
+                    // The original `return`s here; nothing follows the alive arm,
+                    // so falling through is equivalent.
+                }
+            }
         } else {
             // Dead: corpse timer. Removal (b.a) at >= 250ms is not ported yet.
             debug_assert!(
@@ -1119,6 +1146,33 @@ impl Actor {
             );
             self.var_short_i = (i64::from(self.var_short_i) + l) as i16;
         }
+    }
+
+    /// The shared P/G buff-expiry reset (`h.a` ~433/~481): zero the J/K/L/M/N/H/P
+    /// bonus block + `var_byte_w`, clear the attached effect slot, conditionally
+    /// recompute max health if `O` was set (zeroing it), then re-run `h.f`. The
+    /// original's `if (J != 0)` fatigue recompute is **dead code** (J is zeroed
+    /// immediately above), so it never runs — preserved here as this comment.
+    fn strip_buffs(&mut self, effects: &mut Effects, tables: &Tables) {
+        self.var_short_j = 0;
+        self.p_bonus = 0; // P
+        self.j_bonus = 0; // J
+        self.l_bonus = 0; // L
+        self.k_bonus = 0; // K
+        self.m_bonus = 0; // M
+        self.n_bonus = 0; // N
+        self.h_field = 0; // H
+        self.var_byte_w = -1;
+        effects.clear(i32::from(self.var_byte_h)); // i.a(var_byte_h)
+        if self.o_bonus != 0 {
+            self.o_bonus = 0; // O zeroed before the recompute uses it
+            self.var_short_o = (i32::from(self.var_byte_o) * 4
+                + (i32::from(self.var_short_s) + i32::from(self.o_bonus)) * 2
+                + i32::from(self.var_short_x) * 2
+                + i32::from(self.i_bonus)) as i16;
+            self.var_short_d = (40000 / i32::from(self.var_short_o)) as i16;
+        }
+        self.class_progression(tables);
     }
 }
 
@@ -1236,7 +1290,7 @@ mod tests {
         let tables = Tables::default();
         let mut a = full_health_player();
         a.var_short_b = 100;
-        a.tick(200, false, None, &tables);
+        a.tick(200, false, None, &tables, &mut Effects::new());
         // var_short_b 100+200=300 > 125 -> reset to 0; other timers accumulate.
         assert_eq!(a.var_short_b, 0);
         assert_eq!(a.var_int_a, 200);
@@ -1249,10 +1303,10 @@ mod tests {
         let mut a = full_health_player();
         a.var_short_a = 300;
         a.var_byte_e = 3;
-        a.tick(200, false, None, &tables); // 300-200 = 100, still > 0
+        a.tick(200, false, None, &tables, &mut Effects::new()); // 300-200 = 100, still > 0
         assert_eq!(a.var_short_a, 100);
         assert_eq!(a.var_byte_e, 3);
-        a.tick(200, false, None, &tables); // 100-200 = -100 <= 0 -> idle
+        a.tick(200, false, None, &tables, &mut Effects::new()); // 100-200 = -100 <= 0 -> idle
         assert_eq!(a.var_byte_e, 0);
     }
 
@@ -1263,8 +1317,8 @@ mod tests {
             var_byte_q: 1,
             ..Default::default()
         };
-        a.tick(60, false, None, &tables);
-        a.tick(60, false, None, &tables);
+        a.tick(60, false, None, &tables, &mut Effects::new());
+        a.tick(60, false, None, &tables, &mut Effects::new());
         assert_eq!(a.var_short_i, 120);
         // The dead branch skips the animation gate, so var_short_b just accumulates.
         assert_eq!(a.var_short_b, 120);
@@ -1276,9 +1330,13 @@ mod tests {
         let mut a = full_health_player();
         a.var_byte_y = 2;
         a.var_short_n = 1000;
-        a.tick(200, false, None, &tables);
+        a.tick(200, false, None, &tables, &mut Effects::new());
         assert_eq!(a.var_short_n, 800);
     }
+
+    // The P/G buff-expiry branches call `class_progression` (`h.f`), which needs
+    // the real stat tables, so they are validated against the real bytecode in
+    // `tick_matches_oracle` (like the regen branch) rather than unit-tested here.
 
     #[test]
     fn tick_moves_toward_target_then_clears() {
@@ -1290,15 +1348,15 @@ mod tests {
         a.var_int_arr_d = [1005, 1010];
         a.var_int_arr_j = [1200, 1000]; // target: +200 x
                                         // step size = 800 / (1000/100) = 80; clamped to not overshoot.
-        a.tick(200, false, None, &tables);
+        a.tick(200, false, None, &tables, &mut Effects::new());
         assert_eq!(a.var_int_arr_b, [1080, 1000]); // moved +80
         assert_eq!(a.var_int_arr_e, [1000, 1000]); // prev saved
         assert_eq!(a.var_byte_d, 3); // facing right
         assert_eq!(a.var_int_arr_i, [10, 130]); // iso recomputed
-        a.tick(200, false, None, &tables); // -> 1160
-        a.tick(200, false, None, &tables); // -> 1200 (min(80,40))
+        a.tick(200, false, None, &tables, &mut Effects::new()); // -> 1160
+        a.tick(200, false, None, &tables, &mut Effects::new()); // -> 1200 (min(80,40))
         assert_eq!(a.var_int_arr_b, [1200, 1000]);
-        a.tick(200, false, None, &tables); // arrival: clears target
+        a.tick(200, false, None, &tables, &mut Effects::new()); // arrival: clears target
         assert_eq!(a.var_int_arr_j[0], -1);
     }
 }
