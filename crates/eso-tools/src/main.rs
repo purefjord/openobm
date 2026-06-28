@@ -8,8 +8,9 @@
 
 use anyhow::{bail, Result};
 use eso_tools::{
-    dump_cml, dump_combat_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_scr,
-    dump_scr_exec, dump_scr_trace, dump_xp_sweep, save_roundtrip, scr_coverage, summarize_jtm,
+    dump_cml, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat,
+    dump_lang, dump_scr, dump_scr_exec, dump_scr_trace, dump_xp_sweep, save_roundtrip,
+    scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -35,8 +36,9 @@ fn main() -> Result<()> {
         "save-roundtrip" => save_roundtrip(&args[1])?,
         // hf-sweep takes the oracle's table dump file path (not an assets dir).
         "hf-sweep" => dump_hf_sweep(&args[1])?,
-        // combat-sweep is self-contained (ignores the second arg).
+        // combat-sweep / dist-sweep are self-contained (ignore the second arg).
         "combat-sweep" => dump_combat_sweep()?,
+        "dist-sweep" => dump_dist_sweep()?,
         // xp-sweep takes the oracle's table dump file path (for the level-up h.f).
         "xp-sweep" => dump_xp_sweep(&args[1])?,
         "scr-trace" => {

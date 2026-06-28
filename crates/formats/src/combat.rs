@@ -34,6 +34,21 @@ pub enum CombatOutcome {
     Hit = 3,
 }
 
+/// `h.java::a(int[], int[])` — the octagonal distance approximation between two
+/// world positions (`var_int_arr_b`). Pure; used by targeting (`h.j_a`), AI range
+/// checks, spell AoE, and the combat E-update. Java precedence preserved:
+/// `n2 + 512 >> 10` is `(n2 + 512) >> 10`, and `n3 << 4`.
+pub fn combat_distance(a: &[i32], b: &[i32]) -> i32 {
+    let n5 = (a[0] - b[0]).abs();
+    let n6 = (a[1] - b[1]).abs();
+    let (n3, n4) = if n5 < n6 { (n5, n6) } else { (n6, n5) }; // (min, max)
+    let mut n2 = n4 * 1007 + n3 * 441;
+    if n4 < n3 << 4 {
+        n2 -= n4 * 40;
+    }
+    ((n2 + 512) >> 10).abs()
+}
+
 /// `h.a(j j2, j j3, boolean bl)` — `attacker` strikes `target` (melee path only).
 /// Mutates `target` (HP, dead flag, aggressor back-ref) and advances `rng`
 /// exactly as the original. Returns `(died, outcome)`.
@@ -125,7 +140,8 @@ fn apply_damage(
     n6 = n6.abs();
     let n7 = n7.abs();
 
-    // 1114: first aggressor is remembered.
+    // 1114: first aggressor is remembered (was it unset before this hit?).
+    let fresh_aggressor = !target.var_j_a_set;
     target.var_j_a_set = true;
 
     if n6 <= n2 {
@@ -133,10 +149,18 @@ fn apply_damage(
     } else if n7 <= n3 {
         (false, CombatOutcome::Block)
     } else if n5 > 0 {
-        debug_assert!(
-            target.var_byte_c == 1,
-            "E-update against a non-player target is out of scope"
-        );
+        // 1124: a non-player target records the distance to its aggressor as
+        // alertness (`E`). var_j_a was just set to the attacker for a fresh target,
+        // so we use the attacker's position; a pre-existing different aggressor is
+        // unmodeled (no actor handle in this flat struct).
+        if target.var_byte_c != 1 && !bl2 {
+            debug_assert!(
+                fresh_aggressor,
+                "E-update with a pre-existing var_j_a aggressor is unmodeled"
+            );
+            let d = combat_distance(&target.var_int_arr_b, &attacker.var_int_arr_b);
+            target.e_field = d.max(i32::from(target.e_field)) as i16;
+        }
         // 1127: a non-creature attacker burns one extra RNG draw on a landed hit.
         if attacker.var_byte_t == 0 {
             rng.next_int();

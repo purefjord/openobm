@@ -670,6 +670,97 @@ pub fn dump_combat_sweep() -> Result<String> {
             }
         }
     }
+
+    // Phase C: non-player target — the E-update runs on a landed hit.
+    writeln!(
+        out,
+        "# phase C (non-player E-update): C seed tx ty | qAfter byteQ died outcome E probe"
+    )?;
+    let tpos = [
+        [1000i32, 500],
+        [1100, 500],
+        [1000, 800],
+        [700, 200],
+        [2000, 1500],
+        [1000, 500],
+    ];
+    for seed in 0..5i64 {
+        for tp in tpos {
+            let attacker = Actor {
+                var_byte_c: 0,
+                var_byte_o: 5,
+                var_byte_t: 0,
+                var_byte_u: 0,
+                var_short_s: 20,
+                o_bonus: 5,
+                var_byte_i: 10,
+                k_bonus: 2,
+                n_bonus: 3,
+                prog_d: 100,
+                var_int_arr_l: None,
+                var_int_arr_b: [1000, 500],
+                ..Default::default()
+            };
+            let mut target = Actor {
+                var_byte_c: 0,
+                var_byte_u: 0,
+                var_byte_q: 0,
+                prog_a: 0,
+                prog_b: 0,
+                h_field: 100,
+                var_short_v: 0,
+                var_short_z: 0,
+                l_bonus: 0,
+                m_bonus: 0,
+                var_short_q: 10_000,
+                var_int_arr_b: tp,
+                e_field: 0,
+                ..Default::default()
+            };
+            let mut rng = JavaRandom::new(seed);
+            let (died, outcome) = melee_attack(&attacker, &mut target, true, &mut rng);
+            let probe = rng.next_int();
+            writeln!(
+                out,
+                "C {seed} {} {} | {} {} {} {} {} {probe}",
+                tp[0],
+                tp[1],
+                target.var_short_q,
+                target.var_byte_q,
+                i32::from(died),
+                outcome as i32,
+                target.e_field
+            )?;
+        }
+    }
+    Ok(out)
+}
+
+/// Run the Rust `h.a(int[],int[])` distance port (`formats::combat_distance`) over
+/// the same grid the oracle (`Instrument.dumpDist`) drives through the real method.
+pub fn dump_dist_sweep() -> Result<String> {
+    use formats::combat_distance;
+    let coords = [
+        -300i32, -130, -65, -33, -16, -7, -1, 0, 1, 7, 16, 33, 65, 130, 300,
+    ];
+    let mut out = String::new();
+    writeln!(out, "# dist: ax ay bx by | d")?;
+    for &bx in &coords {
+        for &by in &coords {
+            let d = combat_distance(&[0, 0], &[bx, by]);
+            writeln!(out, "0 0 {bx} {by} | {d}")?;
+        }
+    }
+    let pairs = [
+        [100, 50, 130, 90],
+        [-40, 20, 60, -33],
+        [500, 500, 500, 500],
+        [7, 7, 300, 1],
+    ];
+    for p in pairs {
+        let d = combat_distance(&[p[0], p[1]], &[p[2], p[3]]);
+        writeln!(out, "{} {} {} {} | {d}", p[0], p[1], p[2], p[3])?;
+    }
     Ok(out)
 }
 

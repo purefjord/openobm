@@ -92,6 +92,8 @@ pub struct Actor {
     pub var_int_arr_l: Option<Vec<i32>>,
     /// Whether `j.var_j_a` (the last aggressor back-ref) has been set non-null.
     pub var_j_a_set: bool,
+    /// World position `[x, y]` (`j.var_int_arr_b`); only `[0]`/`[1]` feed combat.
+    pub var_int_arr_b: [i32; 2],
 }
 
 impl Default for Actor {
@@ -146,6 +148,7 @@ impl Default for Actor {
             h_field: 100,
             var_int_arr_l: None,
             var_j_a_set: false,
+            var_int_arr_b: [0; 2],
         }
     }
 }

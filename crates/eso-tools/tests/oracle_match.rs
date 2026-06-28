@@ -14,8 +14,8 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_cml, dump_combat_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr, dump_scr_trace,
-    dump_xp_sweep,
+    dump_cml, dump_combat_sweep, dump_dist_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_scr,
+    dump_scr_trace, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -107,6 +107,14 @@ fn hf_matches_oracle() {
 fn combat_matches_oracle() {
     let rust = dump_combat_sweep().expect("rust combat sweep");
     assert_identical(&rust, &oracle("combat_sweep.txt"), "combat");
+}
+
+/// `h.a(int[],int[])` octagonal distance — the Rust `combat_distance` over the
+/// same position grid the oracle drove through the real method.
+#[test]
+fn dist_matches_oracle() {
+    let rust = dump_dist_sweep().expect("rust dist sweep");
+    assert_identical(&rust, &oracle("dist_sweep.txt"), "dist");
 }
 
 /// XP / level-up (`h.c` + `h.g`). The Rust port (`Actor::award_xp`) runs the same

@@ -49,6 +49,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | `h.f` progression | 5957 synthetic actors (8 classes × 20 levels × 37 races, ± inventory) vs **real `h.f` bytecode** | byte-identical |
 | melee combat | 730 attacker/target+seed cases (damage/crit/dodge/block/armor/weapon-tiers + RNG draws) vs **real `h.a` bytecode** | byte-identical |
 | XP / level-up | 560 class×level×race cases + the 52-entry XP tables vs **real `h.c`/`h.g` bytecode** | byte-identical |
+| combat distance | 229 position-pair cases vs **real `h.a(int[],int[])` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior
@@ -136,10 +137,14 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   class level bonus (`h.g`), a health/fatigue recompute, and the progression pass
   (`h.f`). The 52-entry XP tables are hardcoded and dumped alongside the sweep, so
   the diff validates them against the real `h.var_short_arr_a/b` statics. 560 cases
-  + the tables match the **real `h.c` bytecode** (`xp_matches_oracle`). Out of scope
-  (touch global/UI/animation state, not pure math): the spell/cast path, the
-  attacker E-update vs non-player targets, the combat death branch
-  (animation/sound), and the `h.f` secondary pass — the remaining M8 work.
+  + the tables match the **real `h.c` bytecode** (`xp_matches_oracle`). The combat
+  **distance** (`combat_distance` = `h.a(int[],int[])`, the octagonal range metric
+  behind targeting/AI/AoE) is ported and validated against the real method
+  (`dist_matches_oracle`), and the **non-player E-update** (`target.E = max(distance
+  to aggressor, E)` on a hit) now completes melee resolution for NPC targets too
+  (combat sweep Phase C). Remaining M8 (deferred — they reach the unported `i.java`
+  projectile/effects + map/actor-array state, not pure math): the **spell/cast**
+  path, the combat **death** branch (animation/sound), and the `h.f` secondary pass.
 - **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
   `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
   header (byte/short/int fields, big-endian, with `byte`s written as
