@@ -34,7 +34,9 @@ pub use actor::{Actor, Tables};
 pub use anim::{Anim, AnimNode};
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};
-pub use combat::{combat_distance, melee_attack, nearest_target, CombatOutcome};
+pub use combat::{
+    apply_poison, apply_spell_damage, combat_distance, melee_attack, nearest_target, CombatOutcome,
+};
 pub use effects::Effects;
 pub use iso::{screen_to_world, world_to_screen, Vec2i};
 pub use jtm::{parse_jtm, JtmMap};
@@ -44,4 +46,4 @@ pub use rng::JavaRandom;
 pub use save::{parse_save, serialize_save, Save};
 pub use scr::{parse_scr, ScrProgram};
 pub use vm::{Effect, ScriptVm, Step, StepKind, TextRef};
-pub use world::{collides, move_in_world, set_position};
+pub use world::{collides, move_in_world, set_position, MapRef};

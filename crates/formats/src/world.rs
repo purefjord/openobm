@@ -9,6 +9,16 @@
 use crate::iso::{screen_to_world, Vec2i};
 use crate::Actor;
 
+/// The map layers the AI wander (`h.boolean_c`) reads from `b`'s globals: the
+/// base tile layer (`b.var_java_util_Vector_a[0]`), the collision layer
+/// (`b.var_byte_arr_a`), and the column stride (`b.var_byte_g` — the map
+/// *height*; tile index = `x * height + y`, the `.jtm` convention).
+pub struct MapRef<'a> {
+    pub base: &'a [i8],
+    pub coll: &'a [i8],
+    pub height: i32,
+}
+
 /// `h.void_a(j, direction, dt)` — the per-frame movement step ("moveInWorld").
 /// Accumulates the step timer by `dt`; once it passes 50, advances the actor by a
 /// speed (`var_short_w` scaled by the elapsed time) in `direction` (1=+y/down,

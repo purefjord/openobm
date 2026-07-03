@@ -7,15 +7,12 @@
 //! preserved verbatim: `>>` binds *looser* than `+`, so `s + O + i >> 1` is
 //! `(s + O + i) >> 1` and `v + z + L >> 3` is `(v + z + L) >> 3`.
 //!
-//! **Scope (this slice):** the melee path on a *survivable* target. Two coupled
-//! branches in the original are intentionally out of scope because they reach
-//! global/UI/animation state, not pure math:
-//!  - the **spell/cast** path (`var_byte_c != 1 && (weapon != null || t == 1) && bl`)
-//!    — calls `h.c`/`boolean_c`, which touch the map and projectiles;
-//!  - the **death** branch (`var_short_q <= 0`) — XP/level-up (`h.c`), death
-//!    animation (`h.e`), sound, effects.
-//!
-//! `melee_attack` debug-asserts it is not invoked in those configurations.
+//! **Scope:** the melee path on a *survivable* target. The **spell/cast** branch
+//! (`var_byte_c != 1 && (weapon != null || t == 1) && bl`) is handled by the
+//! caller *before* reaching `melee_attack` ([`Actor::cast`](crate::Actor) from
+//! the tick — `melee_attack` debug-asserts it is not invoked in that
+//! configuration); the **death** branch (`var_short_q <= 0` — XP/level-up,
+//! death animation `h.e`, sound, effects) remains out of scope.
 
 use crate::{Actor, JavaRandom};
 
@@ -249,6 +246,48 @@ pub fn dot_damage(
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
     apply_damage(damage, victim, dealer, dealer_idx, &[], false, true, rng)
+}
+
+/// `h.a(j j2, j j3, int n, int n2)` — the poison applicator: `dealer` (at slot
+/// `dealer_idx`) poisons `victim` with `damage` per lap for `duration` ms. Sets
+/// the DoT fields (`var_byte_x`/`var_short_k`/`var_j_b`/`var_byte_w`), spawns
+/// the poison puff (`i.a(8, j3)`), and applies one immediate defense-bypassing
+/// hit. Called per-victim by the spell AoE (weapon type 4 / the type-2
+/// fallthrough) and by scripts.
+pub fn apply_poison(
+    dealer: &Actor,
+    dealer_idx: usize,
+    victim: &mut Actor,
+    damage: i32,
+    duration: i32,
+    effects: &mut crate::effects::Effects,
+    rng: &mut JavaRandom,
+) -> (bool, CombatOutcome) {
+    victim.var_byte_x = damage as i8;
+    victim.var_short_k = duration as i16;
+    victim.var_j_b = dealer_idx as i32;
+    victim.var_byte_w = -47;
+    effects.spawn_actor(8, 0, victim, 0);
+    apply_damage(damage, victim, dealer, dealer_idx, &[], false, true, rng)
+}
+
+/// `h.a(j j2, j j3, int n)` — direct spell damage: an impact effect
+/// (`i.a(10, j3)`) then `damage` applied **with** full defenses
+/// (dodge/block/armor; `bl2 = false`, so the non-player E-update runs — hence
+/// `actors`). Called per-victim by the spell AoE (weapon row `[1] == 61618`).
+pub fn apply_spell_damage(
+    dealer: &Actor,
+    dealer_idx: usize,
+    victim: &mut Actor,
+    actors: &[Option<Actor>],
+    damage: i32,
+    effects: &mut crate::effects::Effects,
+    rng: &mut JavaRandom,
+) -> (bool, CombatOutcome) {
+    effects.spawn_actor(10, 0, victim, 0);
+    apply_damage(
+        damage, victim, dealer, dealer_idx, actors, false, false, rng,
+    )
 }
 
 #[cfg(test)]

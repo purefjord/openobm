@@ -1407,7 +1407,9 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
         for (fi, &l) in frames.iter().enumerate() {
             // Array form (these scenarios never remove the actor and draw no RNG, so
             // the seed is irrelevant and the trace stays byte-identical).
-            formats::Actor::tick(0, &mut arr, &mut rng, l, false, None, &tables, &mut fx);
+            formats::Actor::tick(
+                0, &mut arr, &mut rng, l, false, None, &tables, &mut fx, None,
+            );
             let a = arr[0].as_ref().expect("tick scenario removed its actor");
             write!(out, "{name} {fi} |")?;
             tick_fields(&mut out, a);
@@ -1470,7 +1472,17 @@ pub fn dump_dot_sweep() -> Result<String> {
         let mut rng = JavaRandom::new(0x00C0_FFEE);
         let mut fx = Effects::new();
         for (fi, &l) in frames.iter().enumerate() {
-            Actor::tick(1, &mut actors, &mut rng, l, false, None, &tables, &mut fx);
+            Actor::tick(
+                1,
+                &mut actors,
+                &mut rng,
+                l,
+                false,
+                None,
+                &tables,
+                &mut fx,
+                None,
+            );
             let v = actors[1]
                 .as_ref()
                 .expect("DoT victim is survivable; never removed");
@@ -1520,7 +1532,17 @@ pub fn dump_corpse_sweep() -> Result<String> {
         let mut rng = JavaRandom::new(0);
         let mut fx = Effects::new();
         for (fi, &l) in frames.iter().enumerate() {
-            Actor::tick(1, &mut actors, &mut rng, l, false, None, &tables, &mut fx);
+            Actor::tick(
+                1,
+                &mut actors,
+                &mut rng,
+                l,
+                false,
+                None,
+                &tables,
+                &mut fx,
+                None,
+            );
             match actors[1].as_ref() {
                 Some(v) => writeln!(out, "{name} {fi} 1 {}", v.var_short_i)?,
                 None => writeln!(out, "{name} {fi} 0 -1")?,
@@ -1731,7 +1753,17 @@ pub fn dump_ai_sweep() -> Result<String> {
         let mut rng = JavaRandom::new(0xA11CE);
         let mut fx = Effects::new();
         for fi in 0..frames {
-            Actor::tick(1, &mut actors, &mut rng, 200, false, None, &tables, &mut fx);
+            Actor::tick(
+                1,
+                &mut actors,
+                &mut rng,
+                200,
+                false,
+                None,
+                &tables,
+                &mut fx,
+                None,
+            );
             let a = actors[1].as_ref().expect("AI actor is never removed");
             let (tq, te, ttxt) = if watch >= 0 {
                 let t = actors[watch as usize].as_ref().unwrap();
@@ -1755,6 +1787,276 @@ pub fn dump_ai_sweep() -> Result<String> {
                 a.var_int_arr_b[0],
                 a.var_int_arr_b[1],
             )?;
+        }
+        writeln!(out, "{name} probe {}", rng.next_int())?;
+    }
+    Ok(out)
+}
+
+/// Spell/cast-path sweep (`h.c` + the armed/creature branch of `h.a:1204`, run
+/// from [`formats::Actor::tick`]). An aggressive armed/creature NPC at slot 1
+/// locks the slot-2 enemy and, when the cooldown elapses, takes the spell
+/// branch: `h.c(j,false)` (fatigue may go negative), the weapon-type dispatch
+/// (buffs `0`/`1`/`5` across the level tiers, AoE poison `4`, cure `6`, type
+/// `3`'s AoE-damage/self-heal/bolt), then the `var_byte_y == 3` weapon-drop or
+/// the `y == 2` `boolean_c` vanish/teleport-wander (on a synthetic open map).
+/// Per frame we dump the caster's cast-owned fields + the slot-2 target's
+/// poison/damage state + the effect pool; per-scenario RNG probes pin the
+/// draws. Needs `hf_tables.txt` (the cast ends in `h.f`).
+/// `Instrument.dumpCast` drives the same scenarios through the real `h.a`;
+/// must match line-for-line.
+pub fn dump_cast_sweep(tables_path: &str) -> Result<String> {
+    use formats::{Actor, Effects, JavaRandom, MapRef};
+
+    let text = std::fs::read_to_string(tables_path)
+        .with_context(|| format!("reading tables fixture {tables_path}"))?;
+    let tables = parse_tables(&text)?;
+
+    // The armed/creature caster under test (slot 1): dumpAI's NPC, plus full
+    // fatigue rails and an empty inventory (so the trailing h.f skips item rows).
+    let me = || Actor {
+        var_byte_c: 2,
+        var_byte_r: 2,
+        var_short_q: 100,
+        var_short_o: 100,
+        var_short_r: 100,
+        var_short_p: 100,
+        var_short_w: 800,
+        e_field: 500,
+        f_field: 60,
+        var_short_s: 40,
+        var_byte_i: 10,
+        k_bonus: 2,
+        n_bonus: 3,
+        var_int_e: 900,
+        var_int_arr_b: [1000, 1000],
+        var_int_arr_c: [1010, 1005],
+        var_int_arr_d: [1005, 1010],
+        var_int_arr_i: [100, 100],
+        var_int_arr_n: [-1; 8],
+        ..Default::default()
+    };
+    // {player@0 (alive, out of AoE range), me@1, enemy@2 (in F + AoE range)}.
+    let install = |me: Actor| {
+        let mut arr: Vec<Option<Actor>> = (0..25).map(|_| None).collect();
+        arr[0] = Some(Actor {
+            var_byte_c: 1,
+            var_byte_r: 1,
+            var_short_q: 10_000,
+            var_short_o: 10_000,
+            var_int_arr_b: [1200, 1200],
+            var_int_arr_i: [120, 120],
+            ..Default::default()
+        });
+        arr[1] = Some(me);
+        arr[2] = Some(Actor {
+            var_byte_c: 3,
+            var_byte_r: 1,
+            var_short_q: 10_000,
+            var_short_o: 10_000,
+            prog_a: 10,
+            prog_b: 10,
+            var_int_arr_b: [1030, 1000],
+            var_int_arr_i: [80, 120],
+            ..Default::default()
+        });
+        arr
+    };
+    // Shared weapon row template; [2] (type) and [1] (61618/61619 id) vary.
+    //              [0][1][2][3][4] [5] [6]  [7][8][9][10][11][12][13][14]
+    let w_base = [0, 0, 0, 7, 14, 21, 900, 0, 0, 5, 10, 5, 8, 12, 200];
+    let w_row = |ty: i32, id: i32| {
+        let mut w = w_base.to_vec();
+        w[2] = ty;
+        w[1] = id;
+        Some(w)
+    };
+
+    // (name, me, frames).
+    let scenarios: Vec<(&str, Actor, usize)> = vec![
+        // creature (t=1): kind-11 swing remapped by facing; no weapon needed.
+        (
+            "creature",
+            Actor {
+                var_byte_t: 1,
+                ..me()
+            },
+            2,
+        ),
+        // The three buff types across the three level tiers.
+        (
+            "buff_l",
+            Actor {
+                var_int_arr_l: w_row(0, 0),
+                var_byte_o: 1,
+                ..me()
+            },
+            1,
+        ),
+        (
+            "buff_n",
+            Actor {
+                var_int_arr_l: w_row(1, 0),
+                var_byte_o: 7,
+                ..me()
+            },
+            1,
+        ),
+        (
+            "buff_h",
+            Actor {
+                var_int_arr_l: w_row(5, 0),
+                var_byte_o: 12,
+                ..me()
+            },
+            1,
+        ),
+        // aoe_poison (type 4): the slot-2 enemy is inside range [14].
+        (
+            "aoe_poison",
+            Actor {
+                var_int_arr_l: w_row(4, 0),
+                var_byte_o: 1,
+                ..me()
+            },
+            1,
+        ),
+        // cure (type 6): the caster's own active DoT is cleared.
+        (
+            "cure",
+            Actor {
+                var_int_arr_l: w_row(6, 0),
+                var_byte_o: 1,
+                var_short_k: 5000,
+                var_short_l: 500,
+                var_byte_w: -47,
+                ..me()
+            },
+            1,
+        ),
+        // aoe_damage (type 3, id 61618): full-defense damage on the enemy.
+        (
+            "aoe_damage",
+            Actor {
+                var_int_arr_l: w_row(3, 61618),
+                var_byte_o: 1,
+                ..me()
+            },
+            1,
+        ),
+        // heal (type 3, id 61619): self-heal clamped to max.
+        (
+            "heal",
+            Actor {
+                var_int_arr_l: w_row(3, 61619),
+                var_byte_o: 1,
+                var_short_q: 50,
+                ..me()
+            },
+            1,
+        ),
+        // bolt (type 3, other id): kind-0 projectile remapped by facing.
+        (
+            "bolt",
+            Actor {
+                var_int_arr_l: w_row(3, 0),
+                var_byte_o: 1,
+                ..me()
+            },
+            1,
+        ),
+        // weapon_drop (var_byte_y == 3): the row is dropped and F halves.
+        (
+            "weapon_drop",
+            Actor {
+                var_int_arr_l: w_row(0, 0),
+                var_byte_o: 1,
+                var_byte_y: 3,
+                ..me()
+            },
+            1,
+        ),
+        // wander (var_byte_y == 2): vanish on the first strike, return once
+        // var_short_n <= -1000, on a fully-open 20x20 map.
+        (
+            "wander",
+            Actor {
+                var_int_arr_l: w_row(0, 0),
+                var_byte_o: 1,
+                var_byte_y: 2,
+                var_short_n: 0,
+                ..me()
+            },
+            6,
+        ),
+    ];
+
+    let base = vec![1i8; 400];
+    let coll = vec![0i8; 400];
+    let map = MapRef {
+        base: &base,
+        coll: &coll,
+        height: 20,
+    };
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# cast sweep: scenario frame | r q k l w h G L N Hf A n F hasW inte ja bx by | \
+         tq tk tx tw tjb tE ttxt | pool[99]   (then: scenario probe <n>)"
+    )?;
+    for (name, caster, frames) in scenarios {
+        let mut actors = install(caster);
+        let mut rng = JavaRandom::new(0xCA57E);
+        let mut fx = Effects::new();
+        for fi in 0..frames {
+            Actor::tick(
+                1,
+                &mut actors,
+                &mut rng,
+                200,
+                false,
+                None,
+                &tables,
+                &mut fx,
+                Some(&map),
+            );
+            let a = actors[1].as_ref().expect("caster is never removed");
+            let t = actors[2].as_ref().expect("target is never removed");
+            write!(
+                out,
+                "{name} {fi} | {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} | \
+                 {} {} {} {} {} {} {} |",
+                a.var_short_r,
+                a.var_short_q,
+                a.var_short_k,
+                a.var_short_l,
+                a.var_byte_w,
+                a.var_byte_h,
+                a.g_field,
+                a.l_bonus,
+                a.n_bonus,
+                a.h_field,
+                a.a_phase,
+                a.var_short_n,
+                a.f_field,
+                i32::from(a.var_int_arr_l.is_some()),
+                a.var_int_e,
+                a.var_j_a,
+                a.var_int_arr_b[0],
+                a.var_int_arr_b[1],
+                t.var_short_q,
+                t.var_short_k,
+                t.var_byte_x,
+                t.var_byte_w,
+                t.var_j_b,
+                t.e_field,
+                i32::from(t.floating_text.is_some()),
+            )?;
+            for p in fx.raw().iter() {
+                write!(out, " {p}")?;
+            }
+            out.push('\n');
         }
         writeln!(out, "{name} probe {}", rng.next_int())?;
     }

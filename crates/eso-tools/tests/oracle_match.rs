@@ -14,10 +14,10 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_ai_sweep, dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep,
-    dump_corpse_sweep, dump_dist_sweep, dump_dot_sweep, dump_effects_sweep, dump_hf_sweep,
-    dump_jtm, dump_lang, dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep,
-    dump_tick_sweep, dump_xp_sweep,
+    dump_ai_sweep, dump_anim_trace, dump_cast_sweep, dump_cml, dump_collision_sweep,
+    dump_combat_sweep, dump_corpse_sweep, dump_dist_sweep, dump_dot_sweep, dump_effects_sweep,
+    dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr, dump_scr_trace,
+    dump_targeting_sweep, dump_tick_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -242,4 +242,18 @@ fn corpse_matches_oracle() {
 fn ai_matches_oracle() {
     let rust = dump_ai_sweep().expect("rust ai sweep");
     assert_identical(&rust, &oracle("ai_trace.txt"), "ai");
+}
+
+/// The spell/cast path (`h.c` + the armed/creature branch of `h.a:1204`, run
+/// from the tick). The Rust [`Actor::tick`] drives an armed/creature NPC through
+/// the creature swing, the three buff types across the level tiers, AoE poison,
+/// cure, AoE damage, self-heal, the bolt projectile, the `var_byte_y == 3`
+/// weapon-drop, and the `y == 2` vanish/teleport-wander on a synthetic map;
+/// `Instrument.dumpCast` drives the same scenarios through the real `h.a`.
+/// Byte-identical = the port reproduces the caster/target fields, the effect
+/// pool, and the exact RNG draw counts per scenario.
+#[test]
+fn cast_matches_oracle() {
+    let rust = dump_cast_sweep(&fixture_path("hf_tables.txt")).expect("rust cast sweep");
+    assert_identical(&rust, &oracle("cast_trace.txt"), "cast");
 }

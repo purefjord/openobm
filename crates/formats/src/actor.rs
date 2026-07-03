@@ -159,6 +159,9 @@ pub struct Actor {
     /// Attack period in ms (`j.var_short_m`, default 1000): the NPC melee fires
     /// when the cooldown timer `var_int_e` reaches it.
     pub var_short_m: i16,
+    /// Summoner wander phase (`j.var_byte_A`): `1` = vanished (teleported
+    /// off-map by `h.boolean_c`), waiting to reappear near the player.
+    pub a_phase: i8,
     /// Timed buff duration (`j.G`); on expiry it strips the J..P bonus block.
     pub g_field: i16,
     /// Aggression flag (`j.var_byte_z`, default 1); gates the NPC attack AI.
@@ -260,6 +263,7 @@ impl Default for Actor {
             var_short_n: 0,
             var_int_arr_j: [-1, -1],
             var_short_m: 1000,
+            a_phase: 0,
             g_field: 0,
             var_byte_z: 1,
             var_byte_h: -1,
@@ -1044,13 +1048,14 @@ impl Actor {
     /// = `h.d`), the player attack-windup (`var_short_a`), the `var_short_k`
     /// damage-over-time, the player health/fatigue regen (every `var_short_d`/`_f`
     /// ms, recomputing via [`Actor::class_progression`]), the NPC attack AI
-    /// (`h.boolean_b` + the melee at `h.a:457` — `bl` gates attacks on the
-    /// player), the `P`/`G` buff-expiry resets, the floating damage text, the
-    /// `var_byte_y` status countdown, and the corpse timer/removal (`b.a`). The
-    /// remaining branches — an *armed or creature* NPC's attack (the spell path
-    /// `h.c`/`boolean_c`) and any death in combat — assert their gating
-    /// preconditions so a caller that reaches one fails loudly rather than
-    /// diverging silently.
+    /// (`h.boolean_b` + the strike at `h.a:457` — `bl` gates attacks on the
+    /// player; armed/creature NPCs take the spell path, [`Actor::cast`] +
+    /// the `var_byte_y` follow-ups), the `P`/`G` buff-expiry resets, the floating
+    /// damage text, the `var_byte_y` status countdown, and the corpse
+    /// timer/removal (`b.a`). The remaining branches — the summon cast (weapon
+    /// type 2, needs the `b` actor spawner) and any death in combat — assert
+    /// their gating preconditions so a caller that reaches one fails loudly
+    /// rather than diverging silently.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         idx: usize,
@@ -1061,15 +1066,16 @@ impl Actor {
         model: Option<&mut Anim>,
         tables: &Tables,
         effects: &mut Effects,
+        map: Option<&crate::world::MapRef>,
     ) {
         // Pull self out of the array so the cross-actor branches (DoT dealer,
-        // corpse removal, and the deferred NPC AI) can borrow other slots freely,
+        // corpse removal, and the NPC AI) can borrow other slots freely,
         // mirroring `Effects::collision_hit`. The slot is `None` for the duration;
         // the actor-array scans already skip self (unique `var_byte_c` / empty).
         let Some(mut me) = actors[idx].take() else {
             return;
         };
-        let keep = me.tick_inner(idx, actors, rng, l, bl, model, tables, effects);
+        let keep = me.tick_inner(idx, actors, rng, l, bl, model, tables, effects, map);
         if keep {
             actors[idx] = Some(me);
         }
@@ -1077,7 +1083,8 @@ impl Actor {
 
     /// The body of [`Actor::tick`], run on `self` = the actor taken out of
     /// `actors[idx]`. Returns `true` to write the actor back, `false` to remove it
-    /// (corpse removal leaves `actors[idx] = None`).
+    /// (corpse removal leaves `actors[idx] = None`). `map` is only read by the
+    /// summoner wander (`h.boolean_c`); `None` fences that branch.
     #[allow(clippy::too_many_arguments)]
     fn tick_inner(
         &mut self,
@@ -1089,6 +1096,7 @@ impl Actor {
         model: Option<&mut Anim>,
         tables: &Tables,
         effects: &mut Effects,
+        map: Option<&crate::world::MapRef>,
     ) -> bool {
         self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
         self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
@@ -1218,10 +1226,10 @@ impl Actor {
                 && self.var_j_a != -1
                 && self.var_int_e >= i32::from(self.var_short_m)
             {
-                // The melee strike (h.a:457): fires only against a non-player
-                // target unless `bl`; the cooldown resets either way. A `true`
-                // return (target died) drops the target locks. Java's var_j_a is
-                // an object ref; the index model needs the slot still live.
+                // The strike (h.a:457): fires only against a non-player target
+                // unless `bl`; the cooldown resets either way. A `true` return
+                // (target died) drops the target locks. Java's var_j_a is an
+                // object ref; the index model needs the slot still live.
                 debug_assert!(
                     (self.var_j_a as usize) < actors.len()
                         && actors[self.var_j_a as usize].is_some(),
@@ -1229,10 +1237,32 @@ impl Actor {
                 );
                 let tgt = self.var_j_a as usize;
                 if bl || actors[tgt].as_ref().unwrap().var_byte_c != 1 {
-                    let mut target = actors[tgt].take().unwrap();
-                    let (died, _) =
-                        crate::combat::melee_attack(self, idx, &mut target, actors, true, rng);
-                    actors[tgt] = Some(target);
+                    // h.a(j2, var_j_a, true): an armed or creature NPC takes the
+                    // spell branch (h.a:1204) — cast, then the var_byte_y==3
+                    // weapon-drop / var_byte_y==2 teleport-wander follow-ups —
+                    // and h.a returns false. Everyone else melees.
+                    let died = if self.var_byte_c != 1
+                        && (self.var_int_arr_l.is_some() || self.var_byte_t == 1)
+                    {
+                        self.cast(idx, actors, effects, tables, rng, false);
+                        if self.var_byte_y == 3 {
+                            self.var_int_arr_l = None;
+                            self.f_field >>= 1;
+                        } else if self.var_byte_y == 2 && self.var_short_n <= 0 {
+                            let map = map
+                                .expect("the summoner wander (h.boolean_c) needs the map layers");
+                            if self.wander(actors, map, effects, rng) {
+                                self.var_short_n = (rng.next_int().abs() % 2000 + 2000) as i16;
+                            }
+                        }
+                        false
+                    } else {
+                        let mut target = actors[tgt].take().unwrap();
+                        let (died, _) =
+                            crate::combat::melee_attack(self, idx, &mut target, actors, true, rng);
+                        actors[tgt] = Some(target);
+                        died
+                    };
                     if died {
                         self.var_j_a = -1;
                         self.var_j_b = -1;
@@ -1369,6 +1399,239 @@ impl Actor {
         true
     }
 
+    /// `h.c(j j2, boolean bl)` — the spell/cast path. A creature (`var_byte_t ==
+    /// 1`) spawns the melee-swing effect (kind 11, remapped by facing) and
+    /// returns. An armed caster pays the level-tier fatigue cost from its weapon
+    /// row (`bl` gates on insufficient fatigue; the tick calls with `bl = false`,
+    /// so fatigue can go **negative** — faithful) and dispatches on the row's
+    /// type (`[2]`): `0`/`1`/`5` = timed L/N/H self-buffs (G duration, status
+    /// icon, re-attached kind-9 effect); `2` = summon (out of scope — needs the
+    /// `b` actor spawner) falling through into `4` = AoE poison
+    /// ([`crate::combat::apply_poison`] on every enemy within `[14]`); `6` =
+    /// cure own poison; `3` = by `[1]`: 61618 AoE direct damage
+    /// ([`crate::combat::apply_spell_damage`]), 61619 self-heal, else a kind-0
+    /// projectile in the facing direction. Ends with the `h.f` recompute.
+    fn cast(
+        &mut self,
+        idx: usize,
+        actors: &mut [Option<Actor>],
+        effects: &mut Effects,
+        tables: &Tables,
+        rng: &mut JavaRandom,
+        bl: bool,
+    ) {
+        if self.var_byte_t == 1 {
+            if self.var_byte_c == 1 {
+                self.var_short_a = 500;
+                self.var_byte_e = 7;
+            }
+            effects.spawn_actor(11, i32::from(self.var_byte_d), self, 0);
+            return;
+        }
+        // Java dereferences var_int_arr_l unconditionally past this point.
+        let w = self
+            .var_int_arr_l
+            .clone()
+            .expect("cast (h.c) requires an equipped weapon/spell row");
+        let lvl = i32::from(self.var_byte_o);
+        let n;
+        if lvl >= w[10] {
+            if i32::from(self.var_short_r) < w[13] && bl {
+                return;
+            }
+            n = w[5];
+            self.var_short_r = (i32::from(self.var_short_r) - w[13]) as i16;
+        } else if lvl >= w[9] {
+            if i32::from(self.var_short_r) < w[12] && bl {
+                return;
+            }
+            n = w[4];
+            self.var_short_r = (i32::from(self.var_short_r) - w[12]) as i16;
+        } else {
+            if i32::from(self.var_short_r) < w[11] && bl {
+                return;
+            }
+            n = w[3];
+            self.var_short_r = (i32::from(self.var_short_r) - w[11]) as i16;
+        }
+        match w[2] {
+            0 => {
+                self.g_field = w[6] as i16;
+                self.l_bonus = n as i16;
+                self.var_byte_w = -48;
+                effects.clear(i32::from(self.var_byte_h));
+                self.var_byte_h = effects.spawn_actor(9, 0, self, 5000) as i8;
+            }
+            1 => {
+                self.g_field = w[6] as i16;
+                self.n_bonus = n as i16;
+                self.var_byte_w = -50;
+                effects.clear(i32::from(self.var_byte_h));
+                self.var_byte_h = effects.spawn_actor(9, 0, self, 5000) as i8;
+            }
+            5 => {
+                self.g_field = w[6] as i16;
+                self.h_field = (n + 100) as i16;
+                self.var_byte_w = -48;
+                effects.clear(i32::from(self.var_byte_h));
+                self.var_byte_h = effects.spawn_actor(9, 0, self, 5000) as i8;
+            }
+            2 => {
+                // Summon (`b.var_b_a.a("/oh_scamp.cml", …)` + `var_j_c`/`var_j_d`
+                // wiring) needs the b-layer actor spawner — out of scope until
+                // the main loop. Java FALLS THROUGH into the type-4 AoE after
+                // summoning, so a faithful summoner would run aoe_poison here.
+                debug_assert!(false, "summon cast (weapon type 2) is out of scope");
+            }
+            4 => {
+                self.aoe_poison(idx, actors, effects, n, w[6], w[14], rng);
+            }
+            6 => {
+                effects.spawn_actor(8, 0, self, 0);
+                self.var_short_k = 0;
+                self.var_short_l = 0;
+                self.var_byte_w = -1;
+            }
+            3 => {
+                if w[1] == 61618 {
+                    // AoE direct damage on every enemy within range [14].
+                    for i in 0..actors.len() {
+                        let hit = match &actors[i] {
+                            // Self is taken out of the array (the `== j2` skip).
+                            Some(a) => {
+                                a.var_byte_r != self.var_byte_r
+                                    && crate::combat::combat_distance(
+                                        &self.var_int_arr_b,
+                                        &a.var_int_arr_b,
+                                    ) <= w[14]
+                            }
+                            None => false,
+                        };
+                        if hit {
+                            let mut victim = actors[i].take().unwrap();
+                            crate::combat::apply_spell_damage(
+                                self,
+                                idx,
+                                &mut victim,
+                                actors,
+                                n,
+                                effects,
+                                rng,
+                            );
+                            actors[i] = Some(victim);
+                        }
+                    }
+                } else if w[1] == 61619 {
+                    effects.spawn_actor(8, 0, self, 0);
+                    self.var_short_q = i32::from(self.var_short_o)
+                        .min(i32::from(self.var_short_q) + n.abs())
+                        as i16;
+                } else {
+                    effects.spawn_actor(0, i32::from(self.var_byte_d), self, 0);
+                }
+            }
+            _ => {}
+        }
+        self.class_progression(tables);
+    }
+
+    /// The weapon-type-4 AoE body (shared with the type-2 fallthrough): poison
+    /// every enemy within `range` (`h.a(j2, actor, n, row[6])` per victim).
+    #[allow(clippy::too_many_arguments)]
+    fn aoe_poison(
+        &mut self,
+        idx: usize,
+        actors: &mut [Option<Actor>],
+        effects: &mut Effects,
+        n: i32,
+        duration: i32,
+        range: i32,
+        rng: &mut JavaRandom,
+    ) {
+        for slot in actors.iter_mut() {
+            let hit = match slot {
+                // Self is taken out of the array (the `== j2` skip).
+                Some(a) => {
+                    a.var_byte_r != self.var_byte_r
+                        && crate::combat::combat_distance(&self.var_int_arr_b, &a.var_int_arr_b)
+                            <= range
+                }
+                None => false,
+            };
+            if hit {
+                let mut victim = slot.take().unwrap();
+                crate::combat::apply_poison(self, idx, &mut victim, n, duration, effects, rng);
+                *slot = Some(victim);
+            }
+        }
+    }
+
+    /// `h.boolean_c(j)` — the summoner vanish/teleport-wander. Phase `A == 0`:
+    /// if the player (slot 0) is alive, puff at the current position, cancel the
+    /// move target, teleport to `(-10000, -10000)`, and enter phase 1. Phase
+    /// `A == 1`: once `var_short_n <= -1000` (a beat after the y==2 countdown
+    /// runs out) and the player is alive, roll up to 100 candidate positions
+    /// near the player (2 RNG draws each; a candidate needs its 5-cell plus
+    /// shape open on the collision layer and non-empty on the base layer),
+    /// teleport there (even after 100 failures — faithful), puff at the new
+    /// position, and on success clear the phase and return `true` (the caller
+    /// then re-arms `var_short_n`).
+    fn wander(
+        &mut self,
+        actors: &[Option<Actor>],
+        map: &crate::world::MapRef,
+        effects: &mut Effects,
+        rng: &mut JavaRandom,
+    ) -> bool {
+        const OFFS: [[i32; 2]; 5] = [[-1, 0], [0, -1], [0, 0], [0, 1], [1, 0]];
+        // Java reads b.var_j_arr_a[0] (the player) unconditionally.
+        debug_assert!(
+            !actors.is_empty() && actors[0].is_some(),
+            "wander (h.boolean_c) needs the player at slot 0"
+        );
+        let player = actors[0].as_ref().unwrap();
+        if self.a_phase == 1 {
+            if self.var_short_n <= -1000 && player.var_byte_q == 0 {
+                let (mut n, mut n2) = (0, 0);
+                let mut ok = false;
+                let mut k = 0;
+                while k < 100 && !ok {
+                    ok = true;
+                    n = (player.var_int_arr_b[0] + rng.next_int() % 500).abs();
+                    n2 = (player.var_int_arr_b[1] + rng.next_int() % 500).abs();
+                    let n4 = n >> 7;
+                    let n5 = n2 >> 7;
+                    for off in OFFS {
+                        let n6 = (n4 + off[0]) * map.height + n5 + off[1];
+                        if n6 < 0 || n6 as usize >= map.base.len() {
+                            ok = false;
+                            continue; // out of bounds: keep checking offsets
+                        }
+                        if map.coll[n6 as usize] == 0 && map.base[n6 as usize] != 0 {
+                            continue; // open cell: next offset
+                        }
+                        ok = false;
+                        break; // blocked: next attempt (Java `continue block0`)
+                    }
+                    k += 1;
+                }
+                crate::world::set_position(self, n, n2);
+                effects.spawn_world(8, self.var_int_arr_b[0], self.var_int_arr_b[1], 0);
+                if ok {
+                    self.a_phase = 0;
+                    return true;
+                }
+            }
+        } else if player.var_byte_q == 0 {
+            effects.spawn_world(8, self.var_int_arr_b[0], self.var_int_arr_b[1], 0);
+            self.var_int_arr_j[0] = -1;
+            self.var_int_arr_j[1] = -1;
+            crate::world::set_position(self, -10000, -10000);
+            self.a_phase = 1;
+        }
+        false
+    }
+
     /// The shared P/G buff-expiry reset (`h.a` ~433/~481): zero the J/K/L/M/N/H/P
     /// bonus block + `var_byte_w`, clear the attached effect slot, conditionally
     /// recompute max health if `O` was set (zeroing it), then re-run `h.f`. The
@@ -1407,7 +1670,7 @@ mod tests {
     fn tick1(a: &mut Actor, l: i64, model: Option<&mut Anim>, t: &Tables, fx: &mut Effects) {
         let mut arr = vec![Some(std::mem::take(a))];
         let mut rng = JavaRandom::new(0);
-        Actor::tick(0, &mut arr, &mut rng, l, false, model, t, fx);
+        Actor::tick(0, &mut arr, &mut rng, l, false, model, t, fx, None);
         *a = arr[0].take().expect("tick unexpectedly removed the actor");
     }
 
@@ -1624,6 +1887,7 @@ mod tests {
             None,
             &tables,
             &mut Effects::new(),
+            None,
         );
         let v = arr[1].as_ref().unwrap();
         assert!(v.var_short_q < before, "DoT should reduce HP");
@@ -1673,6 +1937,7 @@ mod tests {
             None,
             &tables,
             &mut Effects::new(),
+            None,
         );
         {
             let a = arr[1].as_ref().unwrap();
@@ -1698,6 +1963,7 @@ mod tests {
             None,
             &tables,
             &mut Effects::new(),
+            None,
         );
         let a = arr[1].as_ref().unwrap();
         assert_eq!(a.var_j_a, 2, "target locked to slot 2");
@@ -1709,6 +1975,97 @@ mod tests {
             "aggressor back-ref set to the attacker's slot"
         );
         assert!(t.floating_text.is_some(), "combat sets the floating text");
+    }
+
+    #[test]
+    fn tick_creature_and_caster_attacks_take_the_spell_path() {
+        let tables = Tables::default();
+        // A creature (t=1) with a locked target and elapsed cooldown spawns the
+        // facing-remapped melee-swing effect (kind 11 + facing 1 -> 12). Numeric
+        // parity is established by `oracle_match::cast_matches_oracle`.
+        let creature = Actor {
+            var_byte_c: 2, // slot 1
+            var_byte_r: 2,
+            var_byte_t: 1,
+            var_byte_d: 1, // facing
+            var_short_q: 100,
+            var_short_o: 100,
+            e_field: 500,
+            f_field: 60,
+            var_int_e: 900,
+            var_j_a: 2,
+            var_int_arr_b: [1000, 1000],
+            ..Default::default()
+        };
+        let enemy = Actor {
+            var_byte_c: 3, // slot 2
+            var_byte_r: 1,
+            var_short_q: 10_000,
+            var_short_o: 10_000,
+            var_int_arr_b: [1030, 1000],
+            ..Default::default()
+        };
+        let mut arr = vec![None, Some(creature), Some(enemy.clone())];
+        let mut rng = JavaRandom::new(1);
+        let mut fx = Effects::new();
+        Actor::tick(
+            1, &mut arr, &mut rng, 200, false, None, &tables, &mut fx, None,
+        );
+        // Effect [+0] = 0xFFFFF000 | var_byte_c << 8 | 12 (kind 11 remapped by dir 1).
+        assert_eq!(
+            i32::from(fx.raw()[0]) & 0xFF,
+            12,
+            "swing effect kind remapped by facing"
+        );
+        assert_eq!(arr[1].as_ref().unwrap().var_int_e, 0, "cooldown reset");
+        assert_eq!(
+            arr[2].as_ref().unwrap().var_short_q,
+            10_000,
+            "spell branch returns false: no melee damage"
+        );
+
+        // An armed caster (weapon type 0 = L-buff): pays the tier-0 fatigue cost
+        // (bl=false lets it go negative), sets G/L/w, and attaches the kind-9
+        // effect into var_byte_h. The cast's trailing h.f needs a race row.
+        let mut tables = Tables::default();
+        tables.insert(4, vec![vec![0, 0, 0, 5]]);
+        let caster = Actor {
+            var_byte_c: 2,
+            var_byte_r: 2,
+            var_short_q: 100,
+            var_short_o: 100,
+            var_short_r: 3, // fatigue below the cost of 5 — still casts under bl=false
+            var_byte_o: 1,  // level < row[9]=5 -> tier 0: power row[3], cost row[11]
+            e_field: 500,
+            f_field: 60,
+            var_int_e: 900,
+            var_j_a: 2,
+            var_int_arr_b: [1000, 1000],
+            var_int_arr_n: [-1; 8], // empty inventory (h.f skips the item rows)
+            //                       [0][1][2][3] [4] [5] [6]  [7][8][9][10][11][12][13][14]
+            var_int_arr_l: Some(vec![0, 0, 0, 7, 14, 21, 900, 0, 0, 5, 10, 5, 8, 12, 200]),
+            ..Default::default()
+        };
+        let mut arr = vec![None, Some(caster), Some(enemy)];
+        let mut fx = Effects::new();
+        Actor::tick(
+            1, &mut arr, &mut rng, 200, false, None, &tables, &mut fx, None,
+        );
+        let a = arr[1].as_ref().unwrap();
+        assert_eq!(
+            a.var_short_r, -2,
+            "fatigue 3 - cost 5 goes negative under bl=false"
+        );
+        // The cast sets G = row[6] = 900; the same tick's later G-buff branch
+        // (h.a:478) then decrements it by this frame's l — as the original does.
+        assert_eq!(
+            a.g_field, 700,
+            "buff duration from row[6], minus this frame"
+        );
+        assert_eq!(a.l_bonus, 7, "tier-0 power from row[3]");
+        assert_eq!(a.var_byte_w, -48, "status icon");
+        assert_eq!(a.var_byte_h, 0, "kind-9 effect attached at slot 0");
+        assert_eq!(fx.raw()[7], 5000, "attached effect lifetime");
     }
 
     #[test]
@@ -1732,6 +2089,7 @@ mod tests {
             None,
             &tables,
             &mut Effects::new(),
+            None,
         );
         assert_eq!(arr[1].as_ref().unwrap().var_short_i, 300);
         // 300 >= 250: removed from the array.
@@ -1744,6 +2102,7 @@ mod tests {
             None,
             &tables,
             &mut Effects::new(),
+            None,
         );
         assert!(
             arr[1].is_none(),
