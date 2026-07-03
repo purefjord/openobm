@@ -58,6 +58,7 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 | per-actor tick (subset) | 9-scenario × per-frame field trace (timers, anim gate, attack-windup, regen, move-to-target, P/G buff-expiry, floating text, status/corpse timers) vs **real `h.a(j,long,boolean)` bytecode** | byte-identical |
 | per-actor DoT (`var_short_k`) | 3-scenario × per-frame victim HP/timers + 99-short effect pool + end RNG probe (timer laps, `i.a(8,j2)` spawn, defense-bypass damage, `var_byte_t` draw fork) vs **real `h.a` bytecode** | byte-identical |
 | corpse removal | dead-NPC corpse-timer accumulation + slot-null at the 250ms threshold (`b.a(var_byte_c-1)`) vs **real `h.a` bytecode** | byte-identical |
+| NPC attack AI | 9-scenario × per-frame trace (target acquisition, E/F approach/lock/drop + `var_byte_y==2` hold, iso-quadrant facing, cooldown saw-tooth, the melee at `h.a:457` w/ RNG probes, target HP/E/text) vs **real `h.a` bytecode** | byte-identical |
 
 > For the data formats the algorithm is fully self-contained, so the JVM
 > transcription *is* equivalent ground truth. For runtime-coupled behavior

@@ -596,7 +596,7 @@ pub fn dump_combat_sweep() -> Result<String> {
                             };
                             let mut rng = JavaRandom::new(seed);
                             let (died, outcome) =
-                                melee_attack(&attacker, &mut target, true, &mut rng);
+                                melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
                             let probe = rng.next_int();
                             writeln!(
                                 out,
@@ -656,7 +656,7 @@ pub fn dump_combat_sweep() -> Result<String> {
                     ..Default::default()
                 };
                 let mut rng = JavaRandom::new(seed);
-                let (died, outcome) = melee_attack(&attacker, &mut target, bl, &mut rng);
+                let (died, outcome) = melee_attack(&attacker, 0, &mut target, &[], bl, &mut rng);
                 let probe = rng.next_int();
                 writeln!(
                     out,
@@ -718,7 +718,7 @@ pub fn dump_combat_sweep() -> Result<String> {
                 ..Default::default()
             };
             let mut rng = JavaRandom::new(seed);
-            let (died, outcome) = melee_attack(&attacker, &mut target, true, &mut rng);
+            let (died, outcome) = melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
             let probe = rng.next_int();
             writeln!(
                 out,
@@ -1526,6 +1526,237 @@ pub fn dump_corpse_sweep() -> Result<String> {
                 None => writeln!(out, "{name} {fi} 0 -1")?,
             }
         }
+    }
+    Ok(out)
+}
+
+/// NPC attack-AI sweep (`h.boolean_b` + the melee at `h.a:457`, run from
+/// [`formats::Actor::tick`]). An aggressive NPC at slot 1 of a 25-slot actor
+/// array is ticked per frame; the AI scans for the nearest enemy (`h.j_a`),
+/// range-checks `E`/`F`, and either steps toward it (`h.a(j,j)`), locks + faces
+/// it (`h.b(j,j)`), or drops it; at `var_int_e >= var_short_m` the melee fires
+/// (only vs non-players under `bl = false`). Per frame we dump the AI-owned
+/// fields + the watched target's HP/`E`/text-presence; one end-of-scenario RNG
+/// probe pins the melee draw count. `Instrument.dumpAI` drives the same
+/// scenarios through the real `h.a`; must match line-for-line.
+pub fn dump_ai_sweep() -> Result<String> {
+    use formats::{Actor, Effects, JavaRandom, Tables};
+
+    // The aggressive NPC under test (slot 1): unarmed, non-creature, with the
+    // combat stats of the unarmed sweep (s=40, i=10, K=2, N=3).
+    let me = || Actor {
+        var_byte_c: 2,
+        var_byte_r: 2,
+        var_short_q: 100,
+        var_short_o: 100,
+        var_short_w: 800,
+        e_field: 500,
+        f_field: 60,
+        var_short_s: 40,
+        var_byte_i: 10,
+        k_bonus: 2,
+        n_bonus: 3,
+        var_int_arr_b: [1000, 1000],
+        var_int_arr_c: [1010, 1005],
+        var_int_arr_d: [1005, 1010],
+        var_int_arr_i: [100, 100],
+        ..Default::default()
+    };
+    let player = |pos: [i32; 2], iso: [i32; 2]| Actor {
+        var_byte_c: 1,
+        var_byte_r: 1,
+        var_short_q: 10_000,
+        var_short_o: 10_000,
+        var_int_arr_b: pos,
+        var_int_arr_i: iso,
+        ..Default::default()
+    };
+    #[allow(clippy::too_many_arguments)]
+    let foe = |c: i8,
+               r: i8,
+               q: i16,
+               o: i16,
+               a: i16,
+               bb: i16,
+               pos: [i32; 2],
+               iso: [i32; 2],
+               dead: bool| {
+        Actor {
+            var_byte_c: c,
+            var_byte_r: r,
+            var_short_q: q,
+            var_short_o: o,
+            prog_a: a,
+            prog_b: bb,
+            var_int_arr_b: pos,
+            var_int_arr_i: iso,
+            var_byte_q: i8::from(dead),
+            ..Default::default()
+        }
+    };
+    // {slot0, me@1, slot2, slot3} in a 25-slot array (b.var_j_arr_a).
+    let install = |s0: Option<Actor>, me: Actor, s2: Option<Actor>, s3: Option<Actor>| {
+        let mut arr: Vec<Option<Actor>> = (0..25).map(|_| None).collect();
+        arr[0] = s0;
+        arr[1] = Some(me);
+        arr[2] = s2;
+        arr[3] = s3;
+        arr
+    };
+
+    // (name, actors, watch slot (-1 = none), frames).
+    let scenarios: Vec<(&str, Vec<Option<Actor>>, i32, usize)> = vec![
+        // No valid target (friendly + dead foe only).
+        (
+            "idle",
+            install(
+                None,
+                me(),
+                Some(foe(3, 2, 100, 100, 0, 0, [1100, 1000], [110, 100], false)),
+                Some(foe(4, 1, 0, 0, 0, 0, [1050, 1000], [105, 100], true)),
+            ),
+            -1,
+            3,
+        ),
+        // Player inside E, outside F -> 20-unit steps toward it.
+        (
+            "approach",
+            install(Some(player([1300, 1000], [130, 100])), me(), None, None),
+            0,
+            6,
+        ),
+        // In attack range; bl=false gates the strike but the cooldown saw-tooths.
+        (
+            "engage_player",
+            install(Some(player([1030, 1000], [120, 80])), me(), None, None),
+            0,
+            12,
+        ),
+        // An enemy NPC in range -> the melee fires each cooldown lap.
+        (
+            "engage_npc",
+            install(
+                None,
+                Actor {
+                    var_int_e: 900,
+                    ..me()
+                },
+                Some(foe(
+                    3,
+                    1,
+                    10_000,
+                    10_000,
+                    10,
+                    10,
+                    [1030, 1000],
+                    [80, 120],
+                    false,
+                )),
+                None,
+            ),
+            2,
+            12,
+        ),
+        // Held target out of aggro range -> dropped (y != 2).
+        (
+            "disengage",
+            install(
+                Some(player([3000, 3000], [300, 300])),
+                Actor {
+                    var_byte_e: 4,
+                    var_j_a: 0,
+                    ..me()
+                },
+                None,
+                None,
+            ),
+            0,
+            2,
+        ),
+        // Same, but var_byte_y == 2 keeps the target locked.
+        (
+            "y2_hold",
+            install(
+                Some(player([3000, 3000], [300, 300])),
+                Actor {
+                    var_byte_e: 4,
+                    var_j_a: 0,
+                    var_byte_y: 2,
+                    var_short_n: 5000,
+                    ..me()
+                },
+                None,
+                None,
+            ),
+            0,
+            2,
+        ),
+        // Facing quadrants (engage_player covers 2; engage_npc covers 1).
+        (
+            "face_q3",
+            install(Some(player([1030, 1000], [120, 120])), me(), None, None),
+            0,
+            1,
+        ),
+        (
+            "face_q4",
+            install(Some(player([1030, 1000], [80, 80])), me(), None, None),
+            0,
+            1,
+        ),
+        // Equal iso x: none of the four quadrant arms match -> facing unchanged.
+        (
+            "face_eq",
+            install(
+                Some(player([1030, 1000], [100, 80])),
+                Actor {
+                    var_byte_d: 1,
+                    ..me()
+                },
+                None,
+                None,
+            ),
+            0,
+            1,
+        ),
+    ];
+
+    let tables = Tables::default();
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# ai sweep: scenario frame | jx jy e fd inte ja bx by | tq tE ttxt   (then: scenario probe <n>)"
+    )?;
+    for (name, mut actors, watch, frames) in scenarios {
+        let mut rng = JavaRandom::new(0xA11CE);
+        let mut fx = Effects::new();
+        for fi in 0..frames {
+            Actor::tick(1, &mut actors, &mut rng, 200, false, None, &tables, &mut fx);
+            let a = actors[1].as_ref().expect("AI actor is never removed");
+            let (tq, te, ttxt) = if watch >= 0 {
+                let t = actors[watch as usize].as_ref().unwrap();
+                (
+                    i64::from(t.var_short_q),
+                    i64::from(t.e_field),
+                    i64::from(t.floating_text.is_some()),
+                )
+            } else {
+                (0, 0, 0)
+            };
+            writeln!(
+                out,
+                "{name} {fi} | {} {} {} {} {} {} {} {} | {tq} {te} {ttxt}",
+                a.var_int_arr_j[0],
+                a.var_int_arr_j[1],
+                a.var_byte_e,
+                a.var_byte_d,
+                a.var_int_e,
+                a.var_j_a,
+                a.var_int_arr_b[0],
+                a.var_int_arr_b[1],
+            )?;
+        }
+        writeln!(out, "{name} probe {}", rng.next_int())?;
     }
     Ok(out)
 }

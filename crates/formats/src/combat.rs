@@ -7,13 +7,11 @@
 //! preserved verbatim: `>>` binds *looser* than `+`, so `s + O + i >> 1` is
 //! `(s + O + i) >> 1` and `v + z + L >> 3` is `(v + z + L) >> 3`.
 //!
-//! **Scope (this slice):** the melee path on a *survivable* target. Three coupled
+//! **Scope (this slice):** the melee path on a *survivable* target. Two coupled
 //! branches in the original are intentionally out of scope because they reach
 //! global/UI/animation state, not pure math:
 //!  - the **spell/cast** path (`var_byte_c != 1 && (weapon != null || t == 1) && bl`)
 //!    — calls `h.c`/`boolean_c`, which touch the map and projectiles;
-//!  - the attacker's **E-update** on a hit against a *non-player* target
-//!    (`target.var_byte_c != 1`) — needs `var_int_arr_b` + `h.a(int[],int[])`;
 //!  - the **death** branch (`var_short_q <= 0`) — XP/level-up (`h.c`), death
 //!    animation (`h.e`), sound, effects.
 //!
@@ -77,9 +75,17 @@ pub fn nearest_target(actors: &[Option<Actor>], q: &Actor) -> Option<usize> {
 /// `h.a(j j2, j j3, boolean bl)` — `attacker` strikes `target` (melee path only).
 /// Mutates `target` (HP, dead flag, aggressor back-ref) and advances `rng`
 /// exactly as the original. Returns `(died, outcome)`.
+///
+/// `attacker_idx` is the attacker's actor-array slot (stored into the target's
+/// `var_j_a` back-ref on a first hit — `h.a:1114`); `actors` resolves a
+/// *pre-existing* `var_j_a` aggressor's position for the E-update (`h.a:1125`).
+/// Both the attacker's and the target's own slots may be `None` (taken out by
+/// the caller, as in [`Actor::tick`]); the attacker is then read from `attacker`.
 pub fn melee_attack(
     attacker: &Actor,
+    attacker_idx: usize,
     target: &mut Actor,
+    actors: &[Option<Actor>],
     bl: bool,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
@@ -127,16 +133,21 @@ pub fn melee_attack(
     // h.a's `bl` (the damage-text prefix), and h.a's `bl2` (defense bypass) is the
     // literal `false`. So in melee, dodge/block/armor ALWAYS apply — even on crits.
     let _ = bl; // a(j,j,bool)'s own `bl` only gates the (out-of-scope) spell path.
-    apply_damage(n, target, attacker, crit, false, rng)
+    apply_damage(n, target, attacker, attacker_idx, actors, crit, false, rng)
 }
 
 /// `h.a(int n, j j2, j j3, boolean bl, boolean bl2)` — apply `n` damage to `j2`
-/// (here `target`), dealt by `j3` (here `attacker`). Survivable path only.
+/// (here `target`), dealt by `j3` (here `attacker`, at slot `attacker_idx`).
+/// Survivable path only. `bl` prefixes the floating damage text (the crit
+/// marker, lang id 472).
+#[allow(clippy::too_many_arguments)]
 fn apply_damage(
     n: i32,
     target: &mut Actor,
     attacker: &Actor,
-    _bl: bool,
+    attacker_idx: usize,
+    actors: &[Option<Actor>],
+    bl: bool,
     bl2: bool,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
@@ -165,25 +176,40 @@ fn apply_damage(
     n6 = n6.abs();
     let n7 = n7.abs();
 
-    // 1114: first aggressor is remembered (was it unset before this hit?).
-    let fresh_aggressor = !target.var_j_a_set;
-    target.var_j_a_set = true;
+    // 1114: the first aggressor is remembered in the var_j_a back-ref.
+    if target.var_j_a == -1 {
+        target.var_j_a = attacker_idx as i32;
+    }
 
+    // The floating damage text (1118/1121/1131): the real strings come from the
+    // lang table (`b.a(471)` dodge, `b.a(470)` block, `b.a(472)` crit prefix);
+    // only the text's *presence* (and `Q = 0`) drives behavior (the tick fade).
     if n6 <= n2 {
+        target.floating_text = Some("<471>".into());
+        target.q_field = 0;
         (false, CombatOutcome::Dodge)
     } else if n7 <= n3 {
+        target.floating_text = Some("<470>".into());
+        target.q_field = 0;
         (false, CombatOutcome::Block)
     } else if n5 > 0 {
-        // 1124: a non-player target records the distance to its aggressor as
-        // alertness (`E`). var_j_a was just set to the attacker for a fresh target,
-        // so we use the attacker's position; a pre-existing different aggressor is
-        // unmodeled (no actor handle in this flat struct).
-        if target.var_byte_c != 1 && !bl2 {
-            debug_assert!(
-                fresh_aggressor,
-                "E-update with a pre-existing var_j_a aggressor is unmodeled"
-            );
-            let d = combat_distance(&target.var_int_arr_b, &attacker.var_int_arr_b);
+        // 1124: a non-player target records the distance to its aggressor (the
+        // *current* var_j_a — a pre-existing aggressor keeps precedence over the
+        // striker) as alertness (`E`). Java reads the position through the object
+        // ref; the index model requires that slot live — except the striker's
+        // own (possibly taken-out) slot, read from `attacker`.
+        if target.var_byte_c != 1 && target.var_j_a != -1 && !bl2 {
+            let ja = target.var_j_a as usize;
+            let agg_pos = if ja == attacker_idx {
+                &attacker.var_int_arr_b
+            } else {
+                debug_assert!(
+                    ja < actors.len() && actors[ja].is_some(),
+                    "pre-existing var_j_a aggressor must be a live actor in the array"
+                );
+                &actors[ja].as_ref().unwrap().var_int_arr_b
+            };
+            let d = combat_distance(&target.var_int_arr_b, agg_pos);
             target.e_field = d.max(i32::from(target.e_field)) as i16;
         }
         // 1127: a non-creature attacker burns one extra RNG draw on a landed hit.
@@ -191,6 +217,12 @@ fn apply_damage(
             rng.next_int();
         }
         target.var_short_q = (i32::from(target.var_short_q) - n5) as i16;
+        target.floating_text = Some(if bl {
+            format!("<472>{n5}")
+        } else {
+            n5.to_string()
+        });
+        target.q_field = 0;
         target.var_byte_q = i8::from(target.var_short_q <= 0);
         debug_assert!(
             target.var_byte_q == 0,
@@ -202,19 +234,21 @@ fn apply_damage(
     }
 }
 
-/// `h.a(n, j2, j3, false, true)` — apply `damage` to `victim` dealt by `dealer`,
-/// **bypassing defense** (`bl2 = true`: no dodge/block/armor). This is the
-/// damage-over-time application (the `var_short_k` lap in [`crate::Actor::tick`])
-/// and the direct hit of the (unported) poison applicator. `dealer` is read only
-/// for its `var_byte_t` (the extra RNG draw); the on-hit E-update is skipped under
-/// `bl2`. Survivable path only (the death branch is out of scope).
+/// `h.a(n, j2, j3, false, true)` — apply `damage` to `victim` dealt by `dealer`
+/// (at slot `dealer_idx`), **bypassing defense** (`bl2 = true`: no
+/// dodge/block/armor). This is the damage-over-time application (the
+/// `var_short_k` lap in [`crate::Actor::tick`]) and the direct hit of the
+/// (unported) poison applicator. `dealer` is read only for its `var_byte_t` (the
+/// extra RNG draw); the on-hit E-update is skipped under `bl2`. Survivable path
+/// only (the death branch is out of scope).
 pub fn dot_damage(
     damage: i32,
     victim: &mut Actor,
     dealer: &Actor,
+    dealer_idx: usize,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
-    apply_damage(damage, victim, dealer, false, true, rng)
+    apply_damage(damage, victim, dealer, dealer_idx, &[], false, true, rng)
 }
 
 #[cfg(test)]
@@ -246,7 +280,7 @@ mod tests {
                 ..Actor::default()
             };
             let mut rng = JavaRandom::new(seed);
-            let (died, _outcome) = melee_attack(&attacker, &mut target, true, &mut rng);
+            let (died, _outcome) = melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
             assert!(!died);
             assert!(target.var_short_q <= 10_000);
         }

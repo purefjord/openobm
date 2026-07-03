@@ -14,10 +14,10 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_corpse_sweep,
-    dump_dist_sweep, dump_dot_sweep, dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_lang,
-    dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_tick_sweep,
-    dump_xp_sweep,
+    dump_ai_sweep, dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep,
+    dump_corpse_sweep, dump_dist_sweep, dump_dot_sweep, dump_effects_sweep, dump_hf_sweep,
+    dump_jtm, dump_lang, dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep,
+    dump_tick_sweep, dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -198,8 +198,8 @@ fn effects_matches_oracle() {
 /// fields per frame. Byte-identical = the port reproduces the timers, animation
 /// advance gate, attack-windup, player health/fatigue regen, `var_byte_y`
 /// countdown, and dead-corpse timer exactly. Reuses `hf_tables.txt` for the regen
-/// `h.f`. (The deferred branches — movement, DoT, NPC AI, buff-expiry, corpse
-/// removal — are out of these scenarios' scope.)
+/// `h.f`. (Movement, DoT, the NPC AI, and corpse removal have their own sweeps —
+/// they are out of these scenarios' scope.)
 #[test]
 fn tick_matches_oracle() {
     let rust = dump_tick_sweep(&fixture_path("hf_tables.txt")).expect("rust tick sweep");
@@ -228,4 +228,18 @@ fn dot_matches_oracle() {
 fn corpse_matches_oracle() {
     let rust = dump_corpse_sweep().expect("rust corpse sweep");
     assert_identical(&rust, &oracle("corpse_sweep.txt"), "corpse");
+}
+
+/// NPC attack AI (`h.boolean_b` + the melee at `h.a:457`, run from the tick).
+/// The Rust [`Actor::tick`] drives an aggressive NPC over a 25-slot actor array
+/// through target acquisition, the E/F range decision (approach / lock+face /
+/// drop, incl. the `var_byte_y == 2` hold), the cooldown gate, and the strike
+/// (player targets gated by `bl`); `Instrument.dumpAI` installs the same array
+/// into `b.var_j_arr_a` and drives the real `h.a`. Byte-identical = the port
+/// reproduces the AI-owned fields, the target's HP/E/text, and the melee's
+/// exact RNG draw count per scenario.
+#[test]
+fn ai_matches_oracle() {
+    let rust = dump_ai_sweep().expect("rust ai sweep");
+    assert_identical(&rust, &oracle("ai_trace.txt"), "ai");
 }

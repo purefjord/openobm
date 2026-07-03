@@ -338,12 +338,9 @@ impl Effects {
             best = d;
         }
         if target != -1 {
-            melee_attack(
-                &firer,
-                actors[target as usize].as_mut().unwrap(),
-                false,
-                rng,
-            );
+            let mut tgt = actors[target as usize].take().unwrap();
+            melee_attack(&firer, (n5 - 1) as usize, &mut tgt, actors, false, rng);
+            actors[target as usize] = Some(tgt);
             return true;
         }
         false

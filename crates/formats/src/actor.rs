@@ -97,8 +97,11 @@ pub struct Actor {
     pub h_field: i16,   // j.H  (dodge-skill %, default 100)
     /// Equipped weapon row (`j.var_int_arr_l`); `None` = unarmed.
     pub var_int_arr_l: Option<Vec<i32>>,
-    /// Whether `j.var_j_a` (the last aggressor back-ref) has been set non-null.
-    pub var_j_a_set: bool,
+    /// The attack-target/aggressor back-ref (`j.var_j_a`, a Java object ref
+    /// modeled as an actor-array slot index; `-1` = null). Set by the NPC attack
+    /// AI (`h.boolean_b`) to its chosen target, and by `apply_damage`
+    /// (`h.a:1114`) to the first attacker if unset.
+    pub var_j_a: i32,
     /// The DoT dealer's actor-array index (`j.var_j_b`, a Java object ref modeled
     /// as a slot index; `-1` = none). Set by the (unported) poison applicator and
     /// read by the `var_short_k` DoT tick to resolve the damage dealer.
@@ -153,6 +156,9 @@ pub struct Actor {
     pub var_short_n: i16,
     /// Move-to target (`j.var_int_arr_j`, default `[-1,-1]`); `[0] != -1` = moving.
     pub var_int_arr_j: [i32; 2],
+    /// Attack period in ms (`j.var_short_m`, default 1000): the NPC melee fires
+    /// when the cooldown timer `var_int_e` reaches it.
+    pub var_short_m: i16,
     /// Timed buff duration (`j.G`); on expiry it strips the J..P bonus block.
     pub g_field: i16,
     /// Aggression flag (`j.var_byte_z`, default 1); gates the NPC attack AI.
@@ -226,7 +232,7 @@ impl Default for Actor {
             var_byte_t: 0,
             h_field: 100,
             var_int_arr_l: None,
-            var_j_a_set: false,
+            var_j_a: -1,
             var_j_b: -1,
             var_int_arr_b: [0; 2],
             var_int_arr_c: [0; 2],
@@ -253,6 +259,7 @@ impl Default for Actor {
             var_byte_y: -1,
             var_short_n: 0,
             var_int_arr_j: [-1, -1],
+            var_short_m: 1000,
             g_field: 0,
             var_byte_z: 1,
             var_byte_h: -1,
@@ -1036,12 +1043,14 @@ impl Actor {
     /// advance gate, the move-to-target step (`var_int_arr_j` → `world::apply_delta`
     /// = `h.d`), the player attack-windup (`var_short_a`), the `var_short_k`
     /// damage-over-time, the player health/fatigue regen (every `var_short_d`/`_f`
-    /// ms, recomputing via [`Actor::class_progression`]), the `P`/`G` buff-expiry
-    /// resets, the floating damage text, the `var_byte_y` status countdown, and
-    /// the corpse timer/removal (`b.a`). The remaining branch — the NPC attack AI
-    /// (`h.boolean_b` + melee; armed NPCs hit the unported spell path) — asserts
-    /// its gating precondition so a caller that reaches it fails loudly rather
-    /// than diverging silently. `bl` only gates the (deferred) NPC attack.
+    /// ms, recomputing via [`Actor::class_progression`]), the NPC attack AI
+    /// (`h.boolean_b` + the melee at `h.a:457` — `bl` gates attacks on the
+    /// player), the `P`/`G` buff-expiry resets, the floating damage text, the
+    /// `var_byte_y` status countdown, and the corpse timer/removal (`b.a`). The
+    /// remaining branches — an *armed or creature* NPC's attack (the spell path
+    /// `h.c`/`boolean_c`) and any death in combat — assert their gating
+    /// preconditions so a caller that reaches one fails loudly rather than
+    /// diverging silently.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         idx: usize,
@@ -1076,7 +1085,7 @@ impl Actor {
         actors: &mut [Option<Actor>],
         rng: &mut JavaRandom,
         l: i64,
-        _bl: bool,
+        bl: bool,
         model: Option<&mut Anim>,
         tables: &Tables,
         effects: &mut Effects,
@@ -1155,10 +1164,16 @@ impl Actor {
                             && actors[self.var_j_b as usize].is_some(),
                         "DoT dealer must be a live, non-self actor in the array"
                     );
-                    let dealer = actors[self.var_j_b as usize].clone().unwrap();
+                    let dealer_idx = self.var_j_b as usize;
+                    let dealer = actors[dealer_idx].clone().unwrap();
                     // h.a(var_byte_x, j2, var_j_b, false, true).
-                    let (died, _) =
-                        crate::combat::dot_damage(i32::from(self.var_byte_x), self, &dealer, rng);
+                    let (died, _) = crate::combat::dot_damage(
+                        i32::from(self.var_byte_x),
+                        self,
+                        &dealer,
+                        dealer_idx,
+                        rng,
+                    );
                     debug_assert!(!died, "DoT death branch (XP/anim/sound) is out of scope");
                 }
             } else if self.var_byte_w == -47 {
@@ -1198,13 +1213,33 @@ impl Actor {
                     }
                     self.var_short_j = (i64::from(self.var_short_j) + l) as i16;
                 }
-            } else {
-                // NPC attack AI (h.boolean_b + melee) is not ported yet; callers
-                // keep non-players non-aggressive in the validated subset.
+            } else if self.var_byte_z == 1
+                && self.attack_ai(actors)
+                && self.var_j_a != -1
+                && self.var_int_e >= i32::from(self.var_short_m)
+            {
+                // The melee strike (h.a:457): fires only against a non-player
+                // target unless `bl`; the cooldown resets either way. A `true`
+                // return (target died) drops the target locks. Java's var_j_a is
+                // an object ref; the index model needs the slot still live.
                 debug_assert!(
-                    self.var_byte_z != 1,
-                    "NPC attack AI tick (h.boolean_b) not yet ported"
+                    (self.var_j_a as usize) < actors.len()
+                        && actors[self.var_j_a as usize].is_some(),
+                    "attack target must be a live actor in the array"
                 );
+                let tgt = self.var_j_a as usize;
+                if bl || actors[tgt].as_ref().unwrap().var_byte_c != 1 {
+                    let mut target = actors[tgt].take().unwrap();
+                    let (died, _) =
+                        crate::combat::melee_attack(self, idx, &mut target, actors, true, rng);
+                    actors[tgt] = Some(target);
+                    if died {
+                        self.var_j_a = -1;
+                        self.var_j_b = -1;
+                        self.var_byte_e = 0;
+                    }
+                }
+                self.var_int_e = 0;
             }
 
             // Floating damage text: while text is shown, raise it (`Q -= 2`) and
@@ -1254,6 +1289,82 @@ impl Actor {
                 return false; // remove: the caller leaves actors[idx] = None
             }
             self.var_short_i = (i64::from(self.var_short_i) + l) as i16;
+        }
+        true
+    }
+
+    /// `h.b(j, int n, int n2)` — set the move-to target and enter the walking
+    /// animation state.
+    fn set_move_target(&mut self, n: i32, n2: i32) {
+        self.var_int_arr_j[0] = n;
+        self.var_int_arr_j[1] = n2;
+        self.var_byte_e = 1;
+    }
+
+    /// `h.a(j j2, j j3)` — step toward `target`: pick the axis with the larger
+    /// world-position gap and issue a 20-unit move-to along it.
+    fn move_toward(&mut self, target: &Actor) {
+        let n = self.var_int_arr_b[0] - target.var_int_arr_b[0];
+        let n2 = self.var_int_arr_b[1] - target.var_int_arr_b[1];
+        if n.abs() > n2.abs() {
+            if n > 0 {
+                self.set_move_target(self.var_int_arr_b[0] - 20, self.var_int_arr_b[1]);
+            } else {
+                self.set_move_target(self.var_int_arr_b[0] + 20, self.var_int_arr_b[1]);
+            }
+        } else if n2 > 0 {
+            self.set_move_target(self.var_int_arr_b[0], self.var_int_arr_b[1] - 20);
+        } else {
+            self.set_move_target(self.var_int_arr_b[0], self.var_int_arr_b[1] + 20);
+        }
+    }
+
+    /// `h.b(j j2, j j3)` — face `target` by iso/screen position quadrant
+    /// (`var_int_arr_i`). Facing is unchanged when either axis is equal.
+    fn face_toward(&mut self, target: &Actor) {
+        let (a, t) = (&self.var_int_arr_i, &target.var_int_arr_i);
+        if a[0] < t[0] && a[1] > t[1] {
+            self.var_byte_d = 2;
+        } else if a[0] > t[0] && a[1] < t[1] {
+            self.var_byte_d = 1;
+        } else if a[0] < t[0] && a[1] < t[1] {
+            self.var_byte_d = 3;
+        } else if a[0] > t[0] && a[1] > t[1] {
+            self.var_byte_d = 4;
+        }
+    }
+
+    /// `h.boolean_b(j)` — the NPC attack-AI decision, run from the tick.
+    /// Scan for the nearest valid enemy (`h.j_a`); if one is within the aggro
+    /// range `E`: in attack range (`< F`) lock it as `var_j_a` + enter the attack
+    /// state + face it; otherwise step toward it and return `false` (skipping the
+    /// melee this frame). Out of range (or no target), a held `var_j_a` is
+    /// dropped — unless `var_byte_y == 2` keeps it. Returns `true` to let the
+    /// tick's melee gate run.
+    fn attack_ai(&mut self, actors: &[Option<Actor>]) -> bool {
+        if let Some(t) = crate::combat::nearest_target(actors, self) {
+            let target = actors[t].as_ref().unwrap();
+            let n = crate::combat::combat_distance(&self.var_int_arr_b, &target.var_int_arr_b);
+            if n <= i32::from(self.e_field) {
+                if n >= i32::from(self.f_field) {
+                    if self.var_byte_c != 1 {
+                        self.move_toward(target);
+                        return false;
+                    }
+                } else {
+                    self.var_int_arr_j[0] = -1;
+                    self.var_j_a = t as i32;
+                    self.var_byte_e = 4;
+                    self.face_toward(target);
+                }
+            } else if self.var_j_a != -1 && self.var_byte_y != 2 {
+                self.var_int_arr_j[0] = -1;
+                self.var_j_a = -1;
+                self.var_byte_e = 0;
+            }
+        } else if self.var_j_a != -1 {
+            self.var_j_a = -1;
+            self.var_byte_e = 0;
         }
         true
     }
@@ -1518,6 +1629,86 @@ mod tests {
         assert!(v.var_short_q < before, "DoT should reduce HP");
         assert_eq!(v.var_short_l, 1000, "lap timer resets to 1000");
         assert!(v.var_short_k < 5000, "DoT duration counts down");
+    }
+
+    #[test]
+    fn tick_npc_ai_approaches_engages_and_attacks() {
+        let tables = Tables::default();
+        // Aggressive NPC (slot 1) vs an enemy NPC (slot 2). Numeric parity with
+        // the real h.boolean_b is established by `oracle_match::ai_matches_oracle`.
+        let me = Actor {
+            var_byte_c: 2, // slot 1
+            var_byte_r: 2,
+            var_short_q: 100,
+            var_short_o: 100,
+            var_short_w: 800, // walk speed
+            var_short_s: 40,  // strength: base damage 20 (so a landed hit isn't
+            var_byte_i: 10,   // absorbed to a no-text Miss)
+            e_field: 500,     // aggro range
+            f_field: 60,      // attack range
+            var_int_e: 900,   // near the 1000ms attack period
+            var_int_arr_b: [1000, 1000],
+            var_int_arr_c: [1010, 1005],
+            var_int_arr_d: [1005, 1010],
+            ..Default::default()
+        };
+        let enemy = Actor {
+            var_byte_c: 3, // slot 2
+            var_byte_r: 1,
+            var_short_q: 10_000, // survivable
+            var_short_o: 10_000,
+            var_int_arr_b: [1300, 1000], // distance 300: inside E, outside F
+            ..Default::default()
+        };
+        let mut arr = vec![None, Some(me), Some(enemy)];
+        let mut rng = JavaRandom::new(7);
+        // Out of attack range: the AI issues a 20-unit move toward the enemy and
+        // short-circuits the melee gate (boolean_b returns false; no cooldown reset).
+        Actor::tick(
+            1,
+            &mut arr,
+            &mut rng,
+            200,
+            false,
+            None,
+            &tables,
+            &mut Effects::new(),
+        );
+        {
+            let a = arr[1].as_ref().unwrap();
+            assert_eq!(a.var_int_arr_j, [1020, 1000], "approach: +20 move target");
+            assert_eq!(a.var_j_a, -1, "no target lock while approaching");
+            assert!(a.var_int_e > 900, "cooldown keeps accumulating");
+        }
+        // Teleport into attack range (clearing the pending move so the move-to
+        // step doesn't walk us back out first): the AI locks the target, enters
+        // the attack state, and (cooldown elapsed) strikes — and the cooldown
+        // resets either way.
+        {
+            let a = arr[1].as_mut().unwrap();
+            a.var_int_arr_b = [1270, 1000];
+            a.var_int_arr_j = [-1, -1];
+        }
+        Actor::tick(
+            1,
+            &mut arr,
+            &mut rng,
+            200,
+            false,
+            None,
+            &tables,
+            &mut Effects::new(),
+        );
+        let a = arr[1].as_ref().unwrap();
+        assert_eq!(a.var_j_a, 2, "target locked to slot 2");
+        assert_eq!(a.var_byte_e, 4, "attack animation state");
+        assert_eq!(a.var_int_e, 0, "cooldown reset after the strike gate");
+        let t = arr[2].as_ref().unwrap();
+        assert_eq!(
+            t.var_j_a, 1,
+            "aggressor back-ref set to the attacker's slot"
+        );
+        assert!(t.floating_text.is_some(), "combat sets the floating text");
     }
 
     #[test]
