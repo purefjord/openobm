@@ -22,13 +22,14 @@
 
 use crate::anim::Anim;
 use crate::effects::Effects;
+use crate::rng::JavaRandom;
 
 /// A faithful, scalar subset of `j.java` (the fields the stat math and save
 /// touch). Names mirror the decompiled source; types match Java widths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Actor {
     // --- identity / class ---
-    pub var_byte_c: i8, // appearance/sex flag
+    pub var_byte_c: i8, // actor id: player = 1, else array slot + 1 (b.java:2547); var_byte_c-1 = slot
     pub var_byte_f: i8, // class id
     pub var_byte_j: i8, // race/spec id
     pub var_byte_o: i8, // level
@@ -66,6 +67,9 @@ pub struct Actor {
     pub var_short_j: i16,
     pub var_short_k: i16,
     pub var_short_l: i16,
+    /// Damage-over-time per-lap amount (`j.var_byte_x`), applied while
+    /// `var_short_k > 0` (set by the poison applicator `h.a(j,j,n,n2)`).
+    pub var_byte_x: i8,
     pub var_byte_w: i8,
     /// Queued health-over-time consumable (j.var_int_arr_f).
     pub queued_health: Option<Vec<i32>>,
@@ -95,6 +99,10 @@ pub struct Actor {
     pub var_int_arr_l: Option<Vec<i32>>,
     /// Whether `j.var_j_a` (the last aggressor back-ref) has been set non-null.
     pub var_j_a_set: bool,
+    /// The DoT dealer's actor-array index (`j.var_j_b`, a Java object ref modeled
+    /// as a slot index; `-1` = none). Set by the (unported) poison applicator and
+    /// read by the `var_short_k` DoT tick to resolve the damage dealer.
+    pub var_j_b: i32,
     /// World position `[x, y]` (`j.var_int_arr_b`); only `[0]`/`[1]` feed combat.
     pub var_int_arr_b: [i32; 2],
 
@@ -200,6 +208,7 @@ impl Default for Actor {
             var_short_j: 0,
             var_short_k: 0,
             var_short_l: 0,
+            var_byte_x: 0,
             var_byte_w: -1,
             queued_health: None,
             queued_fatigue: None,
@@ -218,6 +227,7 @@ impl Default for Actor {
             h_field: 100,
             var_int_arr_l: None,
             var_j_a_set: false,
+            var_j_b: -1,
             var_int_arr_b: [0; 2],
             var_int_arr_c: [0; 2],
             var_int_arr_d: [0; 2],
@@ -1024,23 +1034,53 @@ impl Actor {
     ///
     /// **Ported subset (the rest of `h.a` is deferred):** timers, the animation
     /// advance gate, the move-to-target step (`var_int_arr_j` → `world::apply_delta`
-    /// = `h.d`), the player attack-windup (`var_short_a`), the player health/fatigue
-    /// regen (every `var_short_d`/`_f` ms, recomputing via
-    /// [`Actor::class_progression`]), the `var_byte_y` status countdown, and the
-    /// dead-actor corpse timer. The deferred branches — the `var_short_k`
-    /// damage-over-time, the NPC attack AI (`h.boolean_b` + melee, armed NPCs hit
-    /// the unported spell path), the `P`/`G` buff-expiry resets, the floating
-    /// damage text, and corpse removal (`b.a`) — assert their gating preconditions
-    /// so a caller that reaches one fails loudly rather than diverging silently.
-    /// `bl` only gates the (deferred) NPC attack.
+    /// = `h.d`), the player attack-windup (`var_short_a`), the `var_short_k`
+    /// damage-over-time, the player health/fatigue regen (every `var_short_d`/`_f`
+    /// ms, recomputing via [`Actor::class_progression`]), the `P`/`G` buff-expiry
+    /// resets, the floating damage text, the `var_byte_y` status countdown, and
+    /// the corpse timer/removal (`b.a`). The remaining branch — the NPC attack AI
+    /// (`h.boolean_b` + melee; armed NPCs hit the unported spell path) — asserts
+    /// its gating precondition so a caller that reaches it fails loudly rather
+    /// than diverging silently. `bl` only gates the (deferred) NPC attack.
+    #[allow(clippy::too_many_arguments)]
     pub fn tick(
+        idx: usize,
+        actors: &mut [Option<Actor>],
+        rng: &mut JavaRandom,
+        l: i64,
+        bl: bool,
+        model: Option<&mut Anim>,
+        tables: &Tables,
+        effects: &mut Effects,
+    ) {
+        // Pull self out of the array so the cross-actor branches (DoT dealer,
+        // corpse removal, and the deferred NPC AI) can borrow other slots freely,
+        // mirroring `Effects::collision_hit`. The slot is `None` for the duration;
+        // the actor-array scans already skip self (unique `var_byte_c` / empty).
+        let Some(mut me) = actors[idx].take() else {
+            return;
+        };
+        let keep = me.tick_inner(idx, actors, rng, l, bl, model, tables, effects);
+        if keep {
+            actors[idx] = Some(me);
+        }
+    }
+
+    /// The body of [`Actor::tick`], run on `self` = the actor taken out of
+    /// `actors[idx]`. Returns `true` to write the actor back, `false` to remove it
+    /// (corpse removal leaves `actors[idx] = None`).
+    #[allow(clippy::too_many_arguments)]
+    fn tick_inner(
         &mut self,
+        idx: usize,
+        actors: &mut [Option<Actor>],
+        rng: &mut JavaRandom,
         l: i64,
         _bl: bool,
         model: Option<&mut Anim>,
         tables: &Tables,
         effects: &mut Effects,
-    ) {
+    ) -> bool {
         self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
         self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
         self.var_int_e = (i64::from(self.var_int_e) + l) as i32;
@@ -1092,12 +1132,36 @@ impl Actor {
                 }
             }
 
-            // The var_short_k damage-over-time is not ported yet.
-            debug_assert!(
-                self.var_short_k <= 0,
-                "DoT (var_short_k) tick not yet ported"
-            );
-            if self.var_byte_w == -47 {
+            // var_short_k damage-over-time (h.java:396-403). Both timers decrement
+            // by `l`; when the lap timer (var_short_l) reaches 0 it spawns the
+            // poison effect (i.a(8,j2)), resets the lap to 1000ms, and applies
+            // var_byte_x damage from the dealer (var_j_b), bypassing defense
+            // (bl2 = true).
+            if self.var_short_k > 0 {
+                self.var_short_k = (i64::from(self.var_short_k) - l) as i16;
+                self.var_short_l = (i64::from(self.var_short_l) - l) as i16;
+                if self.var_short_l <= 0 {
+                    effects.spawn_actor(8, 0, self, 0); // i.a(8, j2)
+                    self.var_short_l = 1000;
+                    // Java's var_j_b is a GC-stable object ref still valid after the
+                    // dealer leaves the array; the index model can't represent that,
+                    // so an active DoT must have a live, non-self dealer. Fence the
+                    // gap loudly rather than silently reading `None` (which would
+                    // drop the dealer's var_byte_t RNG draw and desync the stream).
+                    debug_assert!(
+                        self.var_j_b >= 0
+                            && (self.var_j_b as usize) < actors.len()
+                            && self.var_j_b as usize != idx
+                            && actors[self.var_j_b as usize].is_some(),
+                        "DoT dealer must be a live, non-self actor in the array"
+                    );
+                    let dealer = actors[self.var_j_b as usize].clone().unwrap();
+                    // h.a(var_byte_x, j2, var_j_b, false, true).
+                    let (died, _) =
+                        crate::combat::dot_damage(i32::from(self.var_byte_x), self, &dealer, rng);
+                    debug_assert!(!died, "DoT death branch (XP/anim/sound) is out of scope");
+                }
+            } else if self.var_byte_w == -47 {
                 self.var_byte_w = -1;
             }
             if self.var_byte_y == 2 {
@@ -1174,13 +1238,24 @@ impl Actor {
                 }
             }
         } else {
-            // Dead: corpse timer. Removal (b.a) at >= 250ms is not ported yet.
-            debug_assert!(
-                self.var_short_i < 250,
-                "corpse removal (b.a) tick not yet ported"
-            );
+            // Dead: corpse timer, then removal (b.a(var_byte_c - 1), b.java:2570) at
+            // >= 250ms. We model only the array slot becoming null; the player path
+            // (n == 0 -> sound/UI), the `b.g(null)` target-clear, and the
+            // var_int_o/void_b draw-order bookkeeping belong to the b.java loop.
+            if self.var_short_i >= 250 {
+                debug_assert!(
+                    self.var_byte_c != 1,
+                    "player corpse removal (b.a(0): sound/UI) is out of scope"
+                );
+                debug_assert!(
+                    idx == (self.var_byte_c as usize).wrapping_sub(1),
+                    "var_byte_c must encode the actor's own slot + 1 (b.java:2547)"
+                );
+                return false; // remove: the caller leaves actors[idx] = None
+            }
             self.var_short_i = (i64::from(self.var_short_i) + l) as i16;
         }
+        true
     }
 
     /// The shared P/G buff-expiry reset (`h.a` ~433/~481): zero the J/K/L/M/N/H/P
@@ -1214,6 +1289,16 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run one `Actor::tick` on a lone actor, wrapped so the single-actor
+    /// scenarios below keep asserting straight off `a`. These never reach corpse
+    /// removal, so the put-back always succeeds.
+    fn tick1(a: &mut Actor, l: i64, model: Option<&mut Anim>, t: &Tables, fx: &mut Effects) {
+        let mut arr = vec![Some(std::mem::take(a))];
+        let mut rng = JavaRandom::new(0);
+        Actor::tick(0, &mut arr, &mut rng, l, false, model, t, fx);
+        *a = arr[0].take().expect("tick unexpectedly removed the actor");
+    }
 
     #[test]
     fn derives_health_and_fatigue() {
@@ -1325,7 +1410,7 @@ mod tests {
         let tables = Tables::default();
         let mut a = full_health_player();
         a.var_short_b = 100;
-        a.tick(200, false, None, &tables, &mut Effects::new());
+        tick1(&mut a, 200, None, &tables, &mut Effects::new());
         // var_short_b 100+200=300 > 125 -> reset to 0; other timers accumulate.
         assert_eq!(a.var_short_b, 0);
         assert_eq!(a.var_int_a, 200);
@@ -1338,10 +1423,10 @@ mod tests {
         let mut a = full_health_player();
         a.var_short_a = 300;
         a.var_byte_e = 3;
-        a.tick(200, false, None, &tables, &mut Effects::new()); // 300-200 = 100, still > 0
+        tick1(&mut a, 200, None, &tables, &mut Effects::new()); // 300-200 = 100, still > 0
         assert_eq!(a.var_short_a, 100);
         assert_eq!(a.var_byte_e, 3);
-        a.tick(200, false, None, &tables, &mut Effects::new()); // 100-200 = -100 <= 0 -> idle
+        tick1(&mut a, 200, None, &tables, &mut Effects::new()); // 100-200 = -100 <= 0 -> idle
         assert_eq!(a.var_byte_e, 0);
     }
 
@@ -1352,8 +1437,8 @@ mod tests {
             var_byte_q: 1,
             ..Default::default()
         };
-        a.tick(60, false, None, &tables, &mut Effects::new());
-        a.tick(60, false, None, &tables, &mut Effects::new());
+        tick1(&mut a, 60, None, &tables, &mut Effects::new());
+        tick1(&mut a, 60, None, &tables, &mut Effects::new());
         assert_eq!(a.var_short_i, 120);
         // The dead branch skips the animation gate, so var_short_b just accumulates.
         assert_eq!(a.var_short_b, 120);
@@ -1365,7 +1450,7 @@ mod tests {
         let mut a = full_health_player();
         a.var_byte_y = 2;
         a.var_short_n = 1000;
-        a.tick(200, false, None, &tables, &mut Effects::new());
+        tick1(&mut a, 200, None, &tables, &mut Effects::new());
         assert_eq!(a.var_short_n, 800);
     }
 
@@ -1383,15 +1468,95 @@ mod tests {
         a.var_int_arr_d = [1005, 1010];
         a.var_int_arr_j = [1200, 1000]; // target: +200 x
                                         // step size = 800 / (1000/100) = 80; clamped to not overshoot.
-        a.tick(200, false, None, &tables, &mut Effects::new());
+        tick1(&mut a, 200, None, &tables, &mut Effects::new());
         assert_eq!(a.var_int_arr_b, [1080, 1000]); // moved +80
         assert_eq!(a.var_int_arr_e, [1000, 1000]); // prev saved
         assert_eq!(a.var_byte_d, 3); // facing right
         assert_eq!(a.var_int_arr_i, [10, 130]); // iso recomputed
-        a.tick(200, false, None, &tables, &mut Effects::new()); // -> 1160
-        a.tick(200, false, None, &tables, &mut Effects::new()); // -> 1200 (min(80,40))
+        tick1(&mut a, 200, None, &tables, &mut Effects::new()); // -> 1160
+        tick1(&mut a, 200, None, &tables, &mut Effects::new()); // -> 1200 (min(80,40))
         assert_eq!(a.var_int_arr_b, [1200, 1000]);
-        a.tick(200, false, None, &tables, &mut Effects::new()); // arrival: clears target
+        tick1(&mut a, 200, None, &tables, &mut Effects::new()); // arrival: clears target
         assert_eq!(a.var_int_arr_j[0], -1);
+    }
+
+    #[test]
+    fn tick_dot_damages_victim_each_lap() {
+        let tables = Tables::default();
+        // Dealer at slot 0; victim (a non-aggressive NPC) at slot 1 with active DoT.
+        let dealer = Actor {
+            var_byte_c: 1,
+            var_byte_t: 1, // creature: no extra var_byte_t RNG draw
+            ..Default::default()
+        };
+        let victim = Actor {
+            var_byte_c: 2,     // slot 1 (idx + 1)
+            var_byte_z: 0,     // non-aggressive: skip the deferred NPC AI branch
+            var_short_q: 1000, // survivable
+            var_short_o: 1000,
+            var_short_k: 5000, // DoT duration
+            var_short_l: 100,  // next lap fires this tick
+            var_byte_x: 7,     // 7 damage per lap
+            var_j_b: 0,        // dealer is at slot 0
+            ..Default::default()
+        };
+        let mut arr = vec![Some(dealer), Some(victim)];
+        let mut rng = JavaRandom::new(12345);
+        let before = arr[1].as_ref().unwrap().var_short_q;
+        // l=200: var_short_l 100-200 = -100 <= 0 -> lap fires (defense-bypassing).
+        Actor::tick(
+            1,
+            &mut arr,
+            &mut rng,
+            200,
+            false,
+            None,
+            &tables,
+            &mut Effects::new(),
+        );
+        let v = arr[1].as_ref().unwrap();
+        assert!(v.var_short_q < before, "DoT should reduce HP");
+        assert_eq!(v.var_short_l, 1000, "lap timer resets to 1000");
+        assert!(v.var_short_k < 5000, "DoT duration counts down");
+    }
+
+    #[test]
+    fn tick_dead_npc_removed_at_corpse_timer() {
+        let tables = Tables::default();
+        let npc = Actor {
+            var_byte_c: 2, // slot 1 (idx + 1)
+            var_byte_q: 1, // dead
+            var_short_i: 240,
+            ..Default::default()
+        };
+        let mut arr = vec![None, Some(npc)];
+        let mut rng = JavaRandom::new(0);
+        // 240 < 250: not yet removed; corpse timer accumulates to 300.
+        Actor::tick(
+            1,
+            &mut arr,
+            &mut rng,
+            60,
+            false,
+            None,
+            &tables,
+            &mut Effects::new(),
+        );
+        assert_eq!(arr[1].as_ref().unwrap().var_short_i, 300);
+        // 300 >= 250: removed from the array.
+        Actor::tick(
+            1,
+            &mut arr,
+            &mut rng,
+            60,
+            false,
+            None,
+            &tables,
+            &mut Effects::new(),
+        );
+        assert!(
+            arr[1].is_none(),
+            "dead NPC removed at the 250ms corpse threshold"
+        );
     }
 }

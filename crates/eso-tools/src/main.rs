@@ -8,10 +8,10 @@
 
 use anyhow::{bail, Result};
 use eso_tools::{
-    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
-    dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat, dump_lang, dump_move_sweep,
-    dump_scr, dump_scr_exec, dump_scr_trace, dump_targeting_sweep, dump_tick_sweep, dump_xp_sweep,
-    save_roundtrip, scr_coverage, summarize_jtm,
+    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_corpse_sweep,
+    dump_dist_sweep, dump_dot_sweep, dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_jtm_flat,
+    dump_lang, dump_move_sweep, dump_scr, dump_scr_exec, dump_scr_trace, dump_targeting_sweep,
+    dump_tick_sweep, dump_xp_sweep, save_roundtrip, scr_coverage, summarize_jtm,
 };
 use formats::AssetStore;
 
@@ -40,6 +40,9 @@ fn main() -> Result<()> {
         // combat-sweep / dist-sweep / targeting-sweep are self-contained.
         "combat-sweep" => dump_combat_sweep()?,
         "dist-sweep" => dump_dist_sweep()?,
+        // dot-sweep / corpse-sweep are self-contained (synthetic actors + RNG).
+        "dot-sweep" => dump_dot_sweep()?,
+        "corpse-sweep" => dump_corpse_sweep()?,
         "targeting-sweep" => dump_targeting_sweep()?,
         "collision-sweep" => dump_collision_sweep()?,
         "move-sweep" => dump_move_sweep()?,

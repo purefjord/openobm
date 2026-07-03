@@ -1401,13 +1401,130 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
          sh Q R ic id txt"
     )?;
     for (name, base, frames) in &scenarios {
-        let mut a = base.clone();
+        let mut arr = vec![Some(base.clone())];
+        let mut rng = formats::JavaRandom::new(0);
         let mut fx = formats::Effects::new();
         for (fi, &l) in frames.iter().enumerate() {
-            a.tick(l, false, None, &tables, &mut fx);
+            // Array form (these scenarios never remove the actor and draw no RNG, so
+            // the seed is irrelevant and the trace stays byte-identical).
+            formats::Actor::tick(0, &mut arr, &mut rng, l, false, None, &tables, &mut fx);
+            let a = arr[0].as_ref().expect("tick scenario removed its actor");
             write!(out, "{name} {fi} |")?;
-            tick_fields(&mut out, &a);
+            tick_fields(&mut out, a);
             out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
+/// `var_short_k` damage-over-time sweep (the DoT lap of `h.a(j,long,boolean)`,
+/// `h.java:396-403`). A non-aggressive NPC victim (slot 1) carries an active DoT
+/// dealt by the actor at slot 0; [`Actor::tick`] decrements both timers and, on
+/// each lap, spawns the poison effect (`i.a(8,j2)`) and applies `var_byte_x`
+/// defense-bypassing damage. Per frame we dump the victim's HP/timers/dead-flag +
+/// the 99-`short` effect pool; one end-of-scenario RNG probe pins the cumulative
+/// draw count (the per-frame stream is sequential, so it can't carry a probe).
+/// Crossing `dealer.var_byte_t` ∈ {0,1} makes that probe validate the extra-draw
+/// fork (`h.java:1127`). `Instrument.dumpDoT` drives the same actors through the
+/// real `h.a`; must match line-for-line.
+pub fn dump_dot_sweep() -> Result<String> {
+    use formats::{Actor, Effects, JavaRandom, Tables};
+
+    // (name, dealer.var_byte_t, frames).
+    let scenarios: Vec<(&str, i8, Vec<i64>)> = vec![
+        // One lap (var_short_l 100 fires on frame 0); creature dealer (t=1, no extra draw).
+        ("t1_1lap", 1, vec![200, 200, 200]),
+        // Same, non-creature dealer (t=0, one extra var_byte_t draw per lap).
+        ("t0_1lap", 0, vec![200, 200, 200]),
+        // Two laps (frame 0 fires; reset to 1000; the 900ms frames re-cross), t=0
+        // so the cumulative extra draws shift the end probe.
+        ("t0_2lap", 0, vec![200, 900, 900]),
+    ];
+
+    let tables = Tables::default();
+    let mut out = String::new();
+    writeln!(
+        out,
+        "# dot sweep: scenario frame | q k l dead | pool[99]   (then: scenario probe <n>)"
+    )?;
+    for (name, dealer_t, frames) in &scenarios {
+        let dealer = Actor {
+            var_byte_c: 1, // slot 0
+            var_byte_t: *dealer_t,
+            var_int_arr_b: [4000, 4000],
+            ..Default::default()
+        };
+        let victim = Actor {
+            var_byte_c: 2,     // slot 1 (idx + 1)
+            var_byte_z: 0,     // non-aggressive: skip the deferred NPC AI branch
+            var_short_q: 1000, // survivable
+            var_short_o: 1000,
+            var_short_k: 30_000, // long DoT duration (stays > 0 across the sweep)
+            var_short_l: 100,    // first lap fires on frame 0
+            var_byte_x: 10,      // 10 damage per lap
+            var_j_b: 0,          // dealer is at slot 0
+            var_int_arr_b: [2000, 3000],
+            ..Default::default()
+        };
+        let mut actors: Vec<Option<Actor>> = vec![Some(dealer), Some(victim)];
+        let mut rng = JavaRandom::new(0x00C0_FFEE);
+        let mut fx = Effects::new();
+        for (fi, &l) in frames.iter().enumerate() {
+            Actor::tick(1, &mut actors, &mut rng, l, false, None, &tables, &mut fx);
+            let v = actors[1]
+                .as_ref()
+                .expect("DoT victim is survivable; never removed");
+            write!(
+                out,
+                "{name} {fi} | {} {} {} {} |",
+                v.var_short_q, v.var_short_k, v.var_short_l, v.var_byte_q
+            )?;
+            for p in fx.raw().iter() {
+                write!(out, " {p}")?;
+            }
+            out.push('\n');
+        }
+        // End probe: total draws consumed distinguishes the var_byte_t fork.
+        writeln!(out, "{name} probe {}", rng.next_int())?;
+    }
+    Ok(out)
+}
+
+/// Corpse-removal sweep (the dead branch of `h.a`, `h.java:504-508`): a dead NPC
+/// at slot 1 accumulates its corpse timer (`var_short_i`); at `>= 250`ms
+/// [`Actor::tick`] removes it from the array (`actors[1] = None`). Per frame we
+/// dump `present` (1/0) + `var_short_i` (`-1` once removed). `Instrument.dumpCorpse`
+/// installs the same dead NPC at `b.var_j_arr_a[1]` and drives the real `h.a`
+/// (which calls `b.a(1)` → nulls the slot); must match line-for-line.
+pub fn dump_corpse_sweep() -> Result<String> {
+    use formats::{Actor, Effects, JavaRandom, Tables};
+
+    let tables = Tables::default();
+    let mut out = String::new();
+    writeln!(out, "# corpse sweep: scenario frame present var_short_i")?;
+    // (name, starting var_short_i, frames).
+    let scenarios: Vec<(&str, i16, Vec<i64>)> = vec![
+        // Accumulate 100 -> 160 -> 220 -> 280; the 4th frame enters >= 250 -> remove.
+        ("accumulate", 100, vec![60, 60, 60, 60]),
+        // Already at the threshold: frame 0 enters at 250 >= 250 -> removed at once.
+        ("at_threshold", 250, vec![60]),
+    ];
+    for (name, start_i, frames) in &scenarios {
+        let npc = Actor {
+            var_byte_c: 2, // slot 1 (idx + 1)
+            var_byte_q: 1, // dead
+            var_short_i: *start_i,
+            ..Default::default()
+        };
+        let mut actors: Vec<Option<Actor>> = vec![None, Some(npc)];
+        let mut rng = JavaRandom::new(0);
+        let mut fx = Effects::new();
+        for (fi, &l) in frames.iter().enumerate() {
+            Actor::tick(1, &mut actors, &mut rng, l, false, None, &tables, &mut fx);
+            match actors[1].as_ref() {
+                Some(v) => writeln!(out, "{name} {fi} 1 {}", v.var_short_i)?,
+                None => writeln!(out, "{name} {fi} 0 -1")?,
+            }
         }
     }
     Ok(out)

@@ -202,6 +202,21 @@ fn apply_damage(
     }
 }
 
+/// `h.a(n, j2, j3, false, true)` — apply `damage` to `victim` dealt by `dealer`,
+/// **bypassing defense** (`bl2 = true`: no dodge/block/armor). This is the
+/// damage-over-time application (the `var_short_k` lap in [`crate::Actor::tick`])
+/// and the direct hit of the (unported) poison applicator. `dealer` is read only
+/// for its `var_byte_t` (the extra RNG draw); the on-hit E-update is skipped under
+/// `bl2`. Survivable path only (the death branch is out of scope).
+pub fn dot_damage(
+    damage: i32,
+    victim: &mut Actor,
+    dealer: &Actor,
+    rng: &mut JavaRandom,
+) -> (bool, CombatOutcome) {
+    apply_damage(damage, victim, dealer, false, true, rng)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

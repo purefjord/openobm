@@ -14,9 +14,10 @@
 //!   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
 
 use eso_tools::{
-    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_dist_sweep,
-    dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_lang, dump_move_sweep, dump_scr,
-    dump_scr_trace, dump_targeting_sweep, dump_tick_sweep, dump_xp_sweep,
+    dump_anim_trace, dump_cml, dump_collision_sweep, dump_combat_sweep, dump_corpse_sweep,
+    dump_dist_sweep, dump_dot_sweep, dump_effects_sweep, dump_hf_sweep, dump_jtm, dump_lang,
+    dump_move_sweep, dump_scr, dump_scr_trace, dump_targeting_sweep, dump_tick_sweep,
+    dump_xp_sweep,
 };
 use formats::AssetStore;
 
@@ -203,4 +204,28 @@ fn effects_matches_oracle() {
 fn tick_matches_oracle() {
     let rust = dump_tick_sweep(&fixture_path("hf_tables.txt")).expect("rust tick sweep");
     assert_identical(&rust, &oracle("tick_trace.txt"), "tick");
+}
+
+/// `var_short_k` damage-over-time lap (the DoT branch of `h.a(j,long,boolean)`).
+/// The Rust [`Actor::tick`] runs a non-aggressive NPC victim + dealer through the
+/// DoT path; `Instrument.dumpDoT` drives the same actors through the real `h.a`,
+/// dumping victim HP/timers + the effect pool per frame and an end-of-scenario RNG
+/// probe. Byte-identical = the port reproduces the timer decrements, the
+/// defense-bypassing damage, the `i.a(8,j2)` spawn, and the exact RNG draw count
+/// (incl. the `dealer.var_byte_t` extra-draw fork).
+#[test]
+fn dot_matches_oracle() {
+    let rust = dump_dot_sweep().expect("rust dot sweep");
+    assert_identical(&rust, &oracle("dot_sweep.txt"), "dot");
+}
+
+/// Corpse removal (the dead branch of `h.a` → `b.a(var_byte_c-1)`). The Rust
+/// [`Actor::tick`] removes a dead NPC from the array at the 250ms threshold;
+/// `Instrument.dumpCorpse` installs the same dead NPC in `b.var_j_arr_a[1]` and
+/// drives the real `h.a`, dumping the slot's presence + corpse timer per frame.
+/// Byte-identical = the port reproduces the threshold and the slot nulling.
+#[test]
+fn corpse_matches_oracle() {
+    let rust = dump_corpse_sweep().expect("rust corpse sweep");
+    assert_identical(&rust, &oracle("corpse_sweep.txt"), "corpse");
 }
