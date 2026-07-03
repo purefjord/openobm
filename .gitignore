@@ -5,3 +5,7 @@ Cargo.lock.bak
 /oracle/freej2me
 /oracle/*.jar
 *.class
+# runtime RecordStore state (pinned-empty baseline; never commit)
+/oracle/rms
+/oracle/rms.bak-pre-recon
+/rms.bak-pre-recon
