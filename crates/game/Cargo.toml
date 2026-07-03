@@ -1,0 +1,16 @@
+[package]
+name = "game"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The b.java shell: mode state machine, main loop, menus — validated by screenshot parity against the real bytecode on FreeJ2ME."
+
+[lints]
+workspace = true
+
+[dependencies]
+formats.workspace = true
+render.workspace = true
+anyhow.workspace = true
+png = "0.17"

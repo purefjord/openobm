@@ -4,6 +4,7 @@ members = [
     "crates/formats",
     "crates/eso-tools",
     "crates/render",
+    "crates/game",
 ]
 
 [workspace.package]
@@ -14,6 +15,7 @@ rust-version = "1.94"
 
 [workspace.dependencies]
 formats = { path = "crates/formats" }
+render = { path = "crates/render" }
 anyhow = "1"
 
 # Java ME has silent integer wraparound; we want that to surface as a test panic
