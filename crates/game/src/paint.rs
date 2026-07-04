@@ -197,23 +197,39 @@ pub fn paint_exit_dialog(fb: &mut Fb, masks: &TextMasks) {
     );
 }
 
-/// Paint a text page (`b.paint` cases 4/9/10/21, offset 2401): word-wrapped
-/// paragraph lines from `h(String)` at x=2, pitched `c:Font.height + 1` (11px),
-/// starting at `y = 3 + g:S`. Inverted pages ({4,21}, plus 23/17 out of slice)
-/// are white-on-black; others black-on-parchment `0xE9E9C3`. Mode 21 draws
-/// with the DEFAULT medium font (all others small-bold), skips the pitch-add
-/// on the first line, and — faithful quirk — **decrements the scroll inside
-/// paint** (1px per repaint, on top of `run()`'s 1px/100ms timer), which is
-/// why the legal scroll speed tracks the oracle's frame rate. Line prefixes
-/// `1~` (gold, switch to small-bold for the page's remainder) and `3~` (red,
-/// centered) are the credits markup.
+/// Paint a text page (`b.paint` cases 4/9/10/17/21/23, offset 2401):
+/// word-wrapped paragraph lines from `h(String)` at x=2, pitched
+/// `c:Font.height + 1` (11px), starting at `y = 3 + g:S`. Inverted pages
+/// ({4,21,23,17}) are white-on-black; others black-on-parchment `0xE9E9C3`.
+/// Mode 21 draws with the DEFAULT medium font (all others small-bold), skips
+/// the pitch-add on the first line, and — faithful quirk — **decrements the
+/// scroll inside paint** (1px per repaint, on top of `run()`'s 1px/100ms
+/// timer), which is why the legal scroll speed tracks the oracle's frame
+/// rate. {23,17} clamp the scroll to ≤ 20 per paint (a held UP overscroll
+/// settles at exactly 20 — oracle-pinned). Line prefixes `1~` (gold, switch
+/// to small-bold for the page's remainder) and `3~` (red, centered) are the
+/// credits markup.
+///
+/// Tails (offsets 2851–3502): {23,17} draw a black top band + white title
+/// box with `lang(l:S)` (the help topic) in dark red 0xDD0000, small-bold,
+/// centered at y=10 — `title` carries that string. {4,23,17} draw a black
+/// bottom bar + white small-bold "BACK" at (2, 333) — entirely inside the
+/// clipped 320..345 band, painted faithfully anyway. The scroll ARROWS
+/// (`b:Ld` anim keys 53/54, needing `.cml` frame rendering) are fenced: on
+/// the slice's short 17/23 texts they are unreachable (entry g=15 ≥ the
+/// 10 threshold, DOWN dead via `p:Z`, UP clamped), and About (m=4) is never
+/// rendered by the gated tests — the fence panics rather than draws wrong.
+///
+/// Returns the final line y (`var5`) — the caller's end-of-text check
+/// (`b:Z` debounce → `p:Z` latch / mode transition) needs it.
 pub fn paint_text_page(
     fb: &mut Fb,
     masks: &TextMasks,
     mode: i8,
     pages: &[Vec<String>],
     scroll: &mut i16,
-) {
+    title: Option<&str>,
+) -> i32 {
     let inverted = matches!(mode, 4 | 21 | 23 | 17);
     fb.fill(if inverted { 0x00_00_00 } else { 0xE9_E9_C3 });
     let mut font = if mode == 21 {
@@ -228,7 +244,8 @@ pub fn paint_text_page(
     if mode == 21 {
         *scroll -= 1;
     }
-    let pitch = masks.metrics(GameFont::SmallBold).midp_height + 1;
+    let small_h = masks.metrics(GameFont::SmallBold).midp_height;
+    let pitch = small_h + 1;
     let mut y = 3 + i32::from(*scroll);
     for para in pages {
         for line in para {
@@ -261,6 +278,44 @@ pub fn paint_text_page(
             y += pitch;
         }
     }
+    // {23,17} header tail: black band, white title box, red topic title
+    if matches!(mode, 23 | 17) {
+        let title = title.expect("mode 17/23 with no topic title (l:S)");
+        fb.fill_rect(0, 0, SCREEN_W, small_h + 20, 0x00_00_00);
+        fb.fill_rect(5, 5, SCREEN_W - 10, small_h + 10, 0xFF_FF_FF);
+        let w = masks.string_width(GameFont::SmallBold, title);
+        masks.stamp(
+            fb,
+            GameFont::SmallBold,
+            title,
+            SCREEN_W / 2 - w / 2,
+            10,
+            0xDD_00_00,
+        );
+    }
+    // {4,23,17} bottom bar + "BACK" — fully inside the clipped logical band
+    if matches!(mode, 4 | 23 | 17) {
+        fb.fill_rect(0, SCREEN_H - small_h - 8, SCREEN_W, small_h + 8, 0x00_00_00);
+        masks.stamp(
+            fb,
+            GameFont::SmallBold,
+            "BACK",
+            2,
+            SCREEN_H - small_h - 2,
+            0xFF_FF_FF,
+        );
+    }
+    // scroll-arrow fence (see doc comment): loud, never wrong pixels. Mode 4
+    // (About) always triggers an arrow and is fenced in `Shell::render`.
+    if matches!(mode, 23 | 17) {
+        let limit = SCREEN_H - small_h - 3 * small_h;
+        assert!(
+            i32::from(*scroll) >= 10 && y <= limit,
+            "mode-17/23 scroll-arrow draw not ported (needs .cml frame render): g={} y={y}",
+            *scroll
+        );
+    }
+    y
 }
 
 /// Paint the loader (`b.paint` cases 6/7, offset 2091): black fill, the

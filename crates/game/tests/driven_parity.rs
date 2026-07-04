@@ -45,10 +45,15 @@ fn run_script(script: &str) -> HashMap<String, Fb> {
                     left -= 50;
                 }
             }
-            Cmd::Tap(k) | Cmd::Press(k) => {
+            Cmd::Tap(k) => {
                 shell.press(k);
             }
-            Cmd::Release(_) => {}
+            Cmd::Press(k) => {
+                shell.hold(k); // held: re-dispatches every frame until release
+            }
+            Cmd::Release(_) => {
+                shell.release();
+            }
             Cmd::Shot(name) => {
                 shots.insert(name, shell.render().unwrap());
             }
@@ -234,6 +239,140 @@ fn exit_dialog_at_parity() {
         &shots["dialog_again.png"],
         "exit_dialog.png",
         "driven_exit_dialog_again",
+    );
+}
+
+/// The Help/About choreography at parity (mirrors `oracle/to_help.txt` ->
+/// `artifacts/help`): RIGHT to Help; fire opens menu PAGE 6 (still mode 3 —
+/// the topic carousel); carousel to Game Overview; fire -> mode 23 (static
+/// text page, gated); a held UP overscrolls but the per-paint clamp settles
+/// the frame at g=20 (oracle-pinned); DOWN is dead (`p:Z` end-latch — the
+/// original never clears it in-mode, oracle h5==h6); BACK pops 23 -> page 6
+/// -> main menu with every cursor held (oracle h7==h3, h8==h0); About is
+/// entered/backed out (its roll is animated + render-fenced: no shot);
+/// page-6 re-entry keeps its cursor (h12==h3); Basic Controls -> mode 17
+/// (gated). All static checkpoints diff byte-identical.
+#[test]
+fn help_about_at_parity() {
+    let script = "\
+        wait 9600\n\
+        tap fire\n\
+        wait 1000\n\
+        tap right\n\
+        wait 200\n\
+        shot menu_help.png\n\
+        tap fire\n\
+        wait 200\n\
+        shot page6_basic.png\n\
+        tap right\n\
+        wait 200\n\
+        shot page6_custom.png\n\
+        tap right\n\
+        wait 200\n\
+        shot page6_gameoverview.png\n\
+        tap fire\n\
+        wait 200\n\
+        shot overview.png\n\
+        press up\n\
+        wait 4000\n\
+        release up\n\
+        wait 200\n\
+        shot overview_scrolled.png\n\
+        tap down\n\
+        wait 200\n\
+        shot overview_down_blocked.png\n\
+        tap 21\n\
+        wait 200\n\
+        shot page6_after_back.png\n\
+        tap 21\n\
+        wait 200\n\
+        shot menu_after_back.png\n\
+        tap right\n\
+        wait 200\n\
+        shot menu_about.png\n\
+        tap fire\n\
+        wait 2000\n\
+        tap 21\n\
+        wait 200\n\
+        shot menu_after_about.png\n\
+        tap left\n\
+        wait 200\n\
+        tap fire\n\
+        wait 200\n\
+        shot page6_reentry.png\n\
+        tap left\n\
+        wait 200\n\
+        tap left\n\
+        wait 200\n\
+        tap fire\n\
+        wait 200\n\
+        shot controls.png\n";
+    let shots = run_script(script);
+    assert_parity(
+        &shots["menu_help.png"],
+        "main_menu_help.png",
+        "driven_menu_help",
+    );
+    assert_parity(
+        &shots["page6_basic.png"],
+        "help_page6_basic.png",
+        "driven_page6_basic",
+    );
+    assert_parity(
+        &shots["page6_custom.png"],
+        "help_page6_custom.png",
+        "driven_page6_custom",
+    );
+    assert_parity(
+        &shots["page6_gameoverview.png"],
+        "help_page6_gameoverview.png",
+        "driven_page6_gameoverview",
+    );
+    assert_parity(
+        &shots["overview.png"],
+        "overview_page.png",
+        "driven_overview",
+    );
+    assert_parity(
+        &shots["overview_scrolled.png"],
+        "overview_scrolled.png",
+        "driven_overview_scrolled",
+    );
+    // DOWN after the end-latch: byte-identical to the scrolled frame
+    assert_parity(
+        &shots["overview_down_blocked.png"],
+        "overview_scrolled.png",
+        "driven_overview_down_blocked",
+    );
+    assert_parity(
+        &shots["page6_after_back.png"],
+        "help_page6_gameoverview.png",
+        "driven_page6_after_back",
+    );
+    assert_parity(
+        &shots["menu_after_back.png"],
+        "main_menu_help.png",
+        "driven_menu_after_back",
+    );
+    assert_parity(
+        &shots["menu_about.png"],
+        "main_menu_about.png",
+        "driven_menu_about",
+    );
+    assert_parity(
+        &shots["menu_after_about.png"],
+        "main_menu_about.png",
+        "driven_menu_after_about",
+    );
+    assert_parity(
+        &shots["page6_reentry.png"],
+        "help_page6_gameoverview.png",
+        "driven_page6_reentry",
+    );
+    assert_parity(
+        &shots["controls.png"],
+        "controls_page.png",
+        "driven_controls",
     );
 }
 

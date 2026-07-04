@@ -13,15 +13,20 @@
 //! entry (op44 -> `b.e()`). Nothing on this path is seeded or modeled.
 //!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - firing a class / Help / About yields [`Leave`] — level load
-//!   (mode 6->15->0) and the text-page *input* handling land in later
-//!   sub-slices (the exit dialog, mode 19, IS ported: fire Exit -> confirm
-//!   -> NO back to the menu / YES -> `c()` = mode 12 terminal + destroyed);
+//! - firing a class yields [`Leave::LoadLevel`] — the level load
+//!   (`a("/l01_1.scr")`, mode 6->15->0) is the gameplay slice. The exit
+//!   dialog (19), Help (menu page 6), About (4), Basic Controls (17) and
+//!   Game Overview (23) ARE ported; Custom Controls (mode 5), the overview
+//!   stat tables (mode 18), Save/Load/overwrite (13/14/16) and the pause
+//!   items yield [`Leave::Mode`];
 //! - `b()Z` (RecordStore has-save probe) is modeled as `false` — the pinned
 //!   wiped-RMS baseline (no "Continue" item); the save-capture slice lifts it;
-//! - rendering an unported paint mode is an error;
-//! - the mode-15 please-wait anim, floating-text overlay (`a(J)`), cheat
-//!   buffer (`d(char)`), and the in-game `f.java` menus stay out of slice.
+//! - rendering an unported paint mode is an error; mode 4 (About) renders
+//!   fenced too — its credits roll always draws a scroll ARROW (`.cml` frame
+//!   render, unported) and is animated/visual-only anyway;
+//! - the mode-15 please-wait anim, floating-text overlay (`a(J)`), key-name
+//!   substitution (`d(char)` redefine buffer), and the in-game `f.java`
+//!   menus stay out of slice.
 
 use crate::asset::Assets;
 use crate::fb::Fb;
@@ -74,10 +79,14 @@ pub enum Leave {
 /// A readable view of the front-end screens for tests (`b.m:B` + `k:B`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
-    Title,       // m=8 (key-gate set)
-    MainMenu,    // m=3, k=0
-    ClassSelect, // m=3, k=1
-    ExitDialog,  // m=19
+    Title,        // m=8 (key-gate set)
+    MainMenu,     // m=3, k=0
+    ClassSelect,  // m=3, k=1
+    HelpTopics,   // m=3, k=6 (the Help submenu carousel)
+    ExitDialog,   // m=19
+    ControlsPage, // m=17 (Basic Controls text page)
+    OverviewPage, // m=23 (Game Overview text page)
+    AboutRoll,    // m=4 (animated credits — visual-only, render fenced)
 }
 
 pub struct Shell {
@@ -94,14 +103,19 @@ pub struct Shell {
     bg: u32,                      // n:I (startup background)
     model: Option<Cml>,           // b:Ld (op43 model)
     page: i8,                     // k:B (menu page)
+    page_saved: i8,               // x:B (the page Help was entered from)
+    topic: u16,                   // l:S (help-topic lang id — 17/23 title)
     cursors: [usize; 7],          // e:[B (per-page cursors)
     pages: Vec<Vec<String>>,      // a:[[String (menu page table, from l())
     text_pages: Vec<Vec<String>>, // a:[Ljava/util/Vector; (from h())
     scroll: i16,                  // g:S (text-page scroll)
     scroll_acc: i16,              // h:S (scroll dt accumulator)
+    end_latched: bool,            // p:Z (17/23 end-of-text latch; blocks DOWN)
+    end_debounce: bool,           // b:Z (end-of-text 2-paint debounce toggle)
     blink_ms: i32,                // l:I (-1 disarmed; 500 saw-tooth)
     blink_on: bool,               // i:Z
     latched: i32,                 // a:I (raw keycode; sentinel idle)
+    released: bool,               // p:B (keyReleased seen: consume at the tail)
     banner: bool,                 // c:Image != null (/main.png)
     left_gameplay: bool,          // f:Z
     progress: i8,                 // r:B (loader bar; -1 outside b.c(int))
@@ -128,14 +142,19 @@ impl Shell {
             bg: 0,
             model: None,
             page: -1,
+            page_saved: 0,
+            topic: 0,
             cursors: [0; 7],
             pages: vec![Vec::new(); 7],
             text_pages: Vec::new(),
             scroll: 0,
             scroll_acc: 0,
+            end_latched: false,
+            end_debounce: true, // <clinit>: b:Z = true
             blink_ms: -1,
             blink_on: true,
             latched: KEY_SENTINEL,
+            released: false,
             banner: false,
             left_gameplay: false,
             progress: -1,
@@ -190,12 +209,15 @@ impl Shell {
                 self.text_pages = self.h(self.lang.get(547));
             }
             4 => {
+                // BYTECODE CORRECTION (a(byte) offset 134–147): the credits
+                // scroll starts at b:S - 4 * c:Font height — c:Font is SMALL
+                // BOLD (=305), not the medium font the recon prose said.
                 self.text_pages = self.h(self.lang.get(548));
-                let medium_h = self
+                let small_h = self
                     .masks
-                    .metrics(crate::text::GameFont::MediumPlain)
+                    .metrics(crate::text::GameFont::SmallBold)
                     .midp_height;
-                self.scroll = SCREEN_H as i16 - 4 * medium_h as i16;
+                self.scroll = SCREEN_H as i16 - 4 * small_h as i16;
                 self.scroll_acc = 0;
             }
             21 => {
@@ -208,10 +230,12 @@ impl Shell {
             23 => {
                 self.text_pages = self.h(self.lang.get(574));
                 self.scroll = 15;
+                self.end_latched = false; // p:Z = 0
             }
             17 => {
                 self.text_pages = self.h(self.lang.get(465));
                 self.scroll = 15;
+                self.end_latched = false; // p:Z = 0
             }
             _ => {}
         }
@@ -230,7 +254,13 @@ impl Shell {
         self.pages[0] = vec![g(2), g(456), g(6), g(22)];
         self.pages[5] = vec![g(21), g(2), g(456), g(6), g(22)];
         self.pages[1] = self.vm.class_name_ids().iter().map(|&id| g(id)).collect();
-        // pages 2/3 (debug level list), 4 (lang 18/19/20), 6 (settings) are
+        // page 6 = the Help submenu (build order verified in l() bytecode):
+        // Basic/Custom Controls, Game/Classes/Weapons/Armor/Spells/Items
+        self.pages[6] = [457u16, 458, 573, 522, 459, 460, 461, 462]
+            .iter()
+            .map(|&id| g(id))
+            .collect();
+        // pages 2/3 (debug level list) and 4 (lang 18/19/20 settings) are
         // out of slice: left empty, and rendering an empty page is a loud
         // index panic rather than a wrong frame.
     }
@@ -303,7 +333,7 @@ impl Shell {
                 self.apply(&step);
             }
         }
-        self.input(); // this.b(J)
+        self.input(dt_ms); // this.b(J)
         if self.blink_ms >= 0 {
             self.blink_ms -= dt_ms;
             if self.blink_ms <= 0 {
@@ -327,18 +357,35 @@ impl Shell {
         }
     }
 
-    /// `keyPressed` + `keyReleased` (a tap): latch the raw keycode; the next
-    /// frame's `b(J)` dispatches and clears it.
+    /// `keyPressed` + `keyReleased` (a tap): latch the raw keycode with the
+    /// release flag set — the next frame's `b(J)` dispatches once and the
+    /// tail consumes it (`p:B` -> sentinel).
     pub fn press(&mut self, key: i32) {
         self.latched = key;
+        self.released = true;
+    }
+
+    /// `keyPressed` without a release: the latch persists, so `b(J)`
+    /// re-dispatches EVERY frame (how held-key scrolling works — the tail
+    /// only consumes when `p:B` is set; mode 3 forces `p:B=1` per key, which
+    /// is why menu cursors do NOT auto-repeat).
+    pub fn hold(&mut self, key: i32) {
+        self.latched = key;
+        self.released = false;
+    }
+
+    /// `keyReleased`: `p:B = 1` — the next dispatch is the last.
+    pub fn release(&mut self) {
+        self.released = true;
     }
 
     /// `b(J)` — consume the latched key, transcribing the real pre-dispatch
     /// order: the accept filter (raw soft/menu keys {23,22,21,-104,-105},
     /// digits, or a mapped game action), the `d:B`/`e:B` title-only shortcut,
     /// the `c:B` swallow, THEN the mode dispatch, then the tail feeds the
-    /// script VM (`e.b(char)` — releases the title's op60 gate).
-    fn input(&mut self) {
+    /// script VM (`e.b(char)` — releases the title's op60 gate) and consumes
+    /// the latch if the key was released.
+    fn input(&mut self, dt_ms: i32) {
         let key = self.latched;
         if key == KEY_SENTINEL {
             return;
@@ -366,8 +413,13 @@ impl Shell {
         if !straight_to_tail {
             match self.mode {
                 3 => {
-                    if let Some(action) = action {
-                        self.menu_input(action);
+                    self.menu_input(action, key);
+                    self.released = true; // every mode-3 branch: p:B = 1 (2717)
+                }
+                4 | 9 | 10 | 17 | 23 => {
+                    // shared text-page input (3333): scroll + BACK
+                    if self.text_page_input(action, key, dt_ms) {
+                        return; // consumed ({17,23} BACK: sentinel, p:B=0)
                     }
                 }
                 19 => {
@@ -380,17 +432,62 @@ impl Shell {
                     } else if key == 21 {
                         self.set_mode(3);
                         self.latched = KEY_SENTINEL;
+                        self.released = false;
                         return;
                     }
                 }
                 _ => {}
             }
         }
-        // TAIL: f.a == 0 pre-gameplay -> feed the VM; the cheat buffer
-        // d(char) is out of slice. The gate consumes the key (a:I sentinel);
-        // a tap releases (p:B) and clears the latch either way.
+        // TAIL: f.a == 0 pre-gameplay -> feed the VM; the key-redefine buffer
+        // d(char) is out of slice. If released (p:B): consume the latch.
         self.vm.feed_key(key);
-        self.latched = KEY_SENTINEL;
+        if self.released {
+            self.latched = KEY_SENTINEL;
+            self.released = false;
+        }
+    }
+
+    /// The shared text-page input (offset 3333, modes {4,9,10,17,23}):
+    /// UP scrolls back (`g:S = min(305, g + dt/10)` — the {17,23} paint
+    /// clamp then settles it at 20), DOWN scrolls forward (`g -= dt/10`,
+    /// dead on {17,23} once the end-latch `p:Z` is set — the original never
+    /// clears it in-mode, so after an UP overscroll DOWN stays blocked),
+    /// and BACK (`b:B`) exits {4,17,23} to mode 3 ({17,23}: page 6 +
+    /// consume; {4}: main/pause page, NOT consumed). Returns `true` when
+    /// the key was consumed (the caller must skip the VM tail).
+    fn text_page_input(&mut self, action: Option<Action>, key: i32, dt_ms: i32) -> bool {
+        let small_h = self
+            .masks
+            .metrics(crate::text::GameFont::SmallBold)
+            .midp_height;
+        match action {
+            Some(Action::Up) => {
+                self.scroll_acc = 0;
+                self.scroll =
+                    (i32::from(self.scroll) + dt_ms / 10).min(SCREEN_H - 4 * small_h) as i16;
+            }
+            Some(Action::Down) => {
+                if !(matches!(self.mode, 17 | 23) && self.end_latched) {
+                    self.scroll_acc = 0;
+                    self.scroll = (i32::from(self.scroll) - dt_ms / 10) as i16;
+                }
+            }
+            _ => {}
+        }
+        if matches!(self.mode, 4 | 17 | 23) && key == 21 {
+            if self.mode == 4 {
+                self.page = if self.left_gameplay { 5 } else { 0 };
+                self.set_mode(3); // not consumed: falls to the tail
+            } else {
+                self.page = 6;
+                self.latched = KEY_SENTINEL;
+                self.released = false;
+                self.set_mode(3);
+                return true;
+            }
+        }
+        false
     }
 
     /// `b.c()` (javap 16071) — the YES/exit native: mode 12 (terminal — the
@@ -403,13 +500,15 @@ impl Shell {
         self.exited = true;
     }
 
-    /// `b(J)` mode-3 dispatch: LEFT/RIGHT wrap the page cursor; FIRE dispatches
-    /// on the selected item's string (faithful to the bytecode's string compares).
-    fn menu_input(&mut self, action: Action) {
+    /// `b(J)` mode-3 dispatch (input 1518): LEFT/RIGHT wrap the page cursor,
+    /// BACK (`b:B`, RAW key — before the fire) pops the Help submenu
+    /// (`k = x:B`) or class select (`k = f:Z ? 5 : 0`), FIRE dispatches on
+    /// the selected item's string (the bytecode's compare chain).
+    fn menu_input(&mut self, action: Option<Action>, key: i32) {
         let page = self.page as usize;
         let len = self.pages[page].len();
         match action {
-            Action::Left => {
+            Some(Action::Left) => {
                 // e[k]--; if < 0 wrap to len-1
                 self.cursors[page] = if self.cursors[page] == 0 {
                     len - 1
@@ -417,34 +516,79 @@ impl Shell {
                     self.cursors[page] - 1
                 };
             }
-            Action::Right => {
+            Some(Action::Right) => {
                 // e[k]++; if == len wrap to 0
                 self.cursors[page] = (self.cursors[page] + 1) % len;
             }
-            Action::Fire => self.fire(),
-            Action::Up | Action::Down => {} // menus ignore up/down (recon)
+            None if key == 21 => {
+                // BACK (1611): Help submenu -> the page it was entered from;
+                // class select -> main (or the in-game pause page)
+                if self.page == 6 {
+                    self.page = self.page_saved;
+                } else if self.page == 1 {
+                    self.page = if self.left_gameplay { 5 } else { 0 };
+                }
+            }
+            Some(Action::Fire) => self.fire(),
+            _ => {} // menus ignore up/down + other accepted keys
         }
     }
 
+    /// The FIRE item dispatch (input 1671–2714) — the faithful string-compare
+    /// chain in bytecode order. Items opening unported modes yield
+    /// [`Leave::Mode`]; an item missing from the chain entirely would be a
+    /// real no-op in the original, but here means `l()` built something
+    /// unexpected -> panic.
     fn fire(&mut self) {
         let page = self.page;
-        let item = self.pages[page as usize][self.cursors[page as usize]].clone();
-        if page == 1 {
-            // fire a class -> level load (mode 6 -> please-wait 15 -> game)
-            self.pending_leave = Some(Leave::LoadLevel(item));
+        if page == 2 {
+            // debug level list: loader on pages[3][cursor] (out of slice)
+            self.pending_leave = Some(Leave::Mode(6));
             return;
         }
-        // main-menu string compares (lang ids resolved at l() build time)
-        if item == self.lang.get(2) {
-            self.page = 1; // New Game -> class select (k = 1)
-        } else if item == self.lang.get(22) {
-            self.set_mode(19); // Exit -> confirm dialog (input 2712: a((byte)19))
-        } else if item == self.lang.get(456) {
-            self.pending_leave = Some(Leave::Mode(9)); // Help text page
-        } else if item == self.lang.get(6) {
-            self.pending_leave = Some(Leave::Mode(4)); // About scroll
+        let item = self.pages[page as usize][self.cursors[page as usize]].clone();
+        let is = |id: u16| item == self.lang.get(id);
+        if item.starts_with(self.lang.get(4)) && !self.lang.get(4).is_empty() {
+            panic!("Sound toggle (o:Z + l() + g()) not ported (out of slice)");
+        } else if is(19) {
+            self.pending_leave = Some(Leave::Mode(13)); // Save Game
+        } else if is(3) {
+            self.pending_leave = Some(Leave::Mode(14)); // Load Game
+        } else if is(21) {
+            self.pending_leave = Some(Leave::Mode(0)); // Continue (resume)
+        } else if is(2) {
+            // New Game: b()Z (has-save) fenced false -> class select, never
+            // the mode-16 overwrite confirm on the wiped-RMS baseline
+            self.page = 1;
+        } else if is(6) {
+            self.set_mode(4); // About -> the animated credits roll
+        } else if is(456) {
+            // Help: SAVE the current page, switch to the submenu — stays
+            // in mode 3 (input 2028: x:B = k; k = 6)
+            self.page_saved = self.page;
+            self.page = 6;
+        } else if is(457) {
+            self.topic = 457; // l:S (the 17/23 title); w:B/v:B are mode-5/18
+            self.set_mode(17); // Basic Controls text page
+        } else if is(458) {
+            self.pending_leave = Some(Leave::Mode(5)); // Custom Controls
+        } else if is(573) {
+            self.topic = 573;
+            self.set_mode(23); // Game Overview text page
+        } else if is(522) || is(459) || is(460) || is(461) || is(462) {
+            self.pending_leave = Some(Leave::Mode(18)); // stat-table overviews
+        } else if is(18) {
+            self.pending_leave = Some(Leave::Mode(1)); // Go Shopping
+        } else if is(20) {
+            self.pending_leave = Some(Leave::Mode(0)); // Continue Playing
+        } else if page == 1 {
+            // k==1 class fire (2593 — checked BEFORE the Exit compare):
+            // k(); mode 6; null actors; a("/l01_1.scr") — the gameplay slice
+            self.pending_leave = Some(Leave::LoadLevel(item));
+        } else if is(22) {
+            self.set_mode(19); // Exit -> confirm dialog (2712: a((byte)19))
         } else {
-            panic!("unported main-menu item: {item:?}");
+            panic!("menu item not in the ported compare chain: {item:?}");
         }
     }
 
@@ -459,7 +603,11 @@ impl Shell {
             (8, _) if self.vm.key_gate => Some(Screen::Title),
             (3, 0) => Some(Screen::MainMenu),
             (3, 1) => Some(Screen::ClassSelect),
+            (3, 6) => Some(Screen::HelpTopics),
             (19, _) => Some(Screen::ExitDialog),
+            (17, _) => Some(Screen::ControlsPage),
+            (23, _) => Some(Screen::OverviewPage),
+            (4, _) => Some(Screen::AboutRoll),
             _ => None,
         }
     }
@@ -522,15 +670,35 @@ impl Shell {
                     self.banner,
                 )?;
             }
-            4 | 9 | 10 | 21 => {
-                paint_text_page(
+            9 | 21 => {
+                let final_y = paint_text_page(
                     &mut fb,
                     &self.masks,
                     self.mode,
                     &self.text_pages,
                     &mut self.scroll,
+                    None,
                 );
+                self.text_page_end(final_y)?;
             }
+            17 | 23 => {
+                let title = self.lang.get(self.topic).to_string();
+                let final_y = paint_text_page(
+                    &mut fb,
+                    &self.masks,
+                    self.mode,
+                    &self.text_pages,
+                    &mut self.scroll,
+                    Some(&title),
+                );
+                self.text_page_end(final_y)?;
+            }
+            4 => anyhow::bail!(
+                "About (mode 4) render fenced: the credits roll always draws \
+                 a scroll arrow (.cml frame render, unported) and is animated \
+                 — visual-only, never gated"
+            ),
+            10 => anyhow::bail!("intro text page (mode 10) is the gameplay slice"),
             19 => paint_exit_dialog(&mut fb, &self.masks),
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \
@@ -539,6 +707,40 @@ impl Shell {
             other => anyhow::bail!("paint mode {other} not ported (out of slice)"),
         }
         Ok(fb)
+    }
+
+    /// The end-of-text check at the text-page paint's tail (offset 3503):
+    /// when the final line y sits above the page limit (`b:S - smallH`,
+    /// minus `3*smallH` for {10,23,4,17}), a 2-paint `b:Z` debounce fires
+    /// the end action: {17,23} latch `p:Z` (DOWN dead), 21 nothing, 4 ->
+    /// menu (3s freeze elided; unreachable here — mode-4 render is fenced),
+    /// 9/10 -> outro/intro transitions (gameplay slice, loud).
+    fn text_page_end(&mut self, final_y: i32) -> anyhow::Result<()> {
+        let small_h = self
+            .masks
+            .metrics(crate::text::GameFont::SmallBold)
+            .midp_height;
+        let mut limit = SCREEN_H - small_h;
+        if matches!(self.mode, 10 | 23 | 4 | 17) {
+            limit -= 3 * small_h;
+        }
+        if final_y < limit {
+            if self.end_debounce {
+                self.end_debounce = false;
+            } else {
+                self.end_debounce = true;
+                match self.mode {
+                    17 | 23 => self.end_latched = true, // p:Z = 1
+                    21 => {}
+                    4 => self.set_mode(3),
+                    other => anyhow::bail!(
+                        "text-page end transition for mode {other} not ported \
+                         (outro/intro — the gameplay slice)"
+                    ),
+                }
+            }
+        }
+        Ok(())
     }
 
     /// `new a().a(byte)` — the Nth `|`-separated segment of /start.txt.

@@ -91,6 +91,9 @@ from FreeJ2ME's own `drawString` path as whole-string ink masks
 | driven flow | one input script from COLD BOOT (loader → logos → legal → title → key → script chain → menu → class select) through the ported loader + VM + `b(J)` mode machine, each `shot` diffed | byte-identical |
 | legal word-wrap | `h(String)` + the small-bold width math vs the 7 lines the real game drew (oracle textlog) | exact |
 | exit dialog (`m=19`) | fire Exit → confirm (incl. the original's lang-451 mis-centering quirk) → NO back to the menu with the cursor held on Exit → re-open; YES → `c()` mode-12 terminal + destroyed (behavior pinned by the oracle modelog) | byte-identical |
+| Help submenu (`m=3 k=6`) | fire Help → the topic carousel (page 6, cursor saved/restored via `x:B`), items from lang 457..462, BACK chains at every level with cursors held | byte-identical |
+| help text pages (`m=17`/`m=23`) | Basic Controls + Game Overview: title box tail (dark-red `lang(l:S)`), small-bold wrapped body, held-UP overscroll settling at the paint clamp (g=20), DOWN dead via the never-cleared `p:Z` end-latch (original quirk) | byte-identical |
+| About (`m=4`) | entry (`h(lang 548)`, scroll init `b:S - 4*smallH` — a bytecode CORRECTION of the recon's medium-font claim) + BACK out; the credits roll itself is animated → visual-only, render fenced (scroll-arrow `.cml` draw unported) | behavior-tested |
 
 Static, input-settled screens only. Animated screens (the boot splash, the
 ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
