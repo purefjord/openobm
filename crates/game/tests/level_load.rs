@@ -381,7 +381,7 @@ fn shell_at_dialogue2() -> Shell {
 }
 
 /// The normalized-shot pixel gate shared by the anchor tests.
-fn assert_frame(s: &mut Shell, name: &str, fixture: &str) {
+fn assert_frame(s: &mut Shell, name: &str, fixture: &str) -> game::fb::Fb {
     s.normalize_for_shot();
     let fb = s.render().expect("gameplay paint");
     let out = root().join("target/parity");
@@ -396,6 +396,7 @@ fn assert_frame(s: &mut Shell, name: &str, fixture: &str) {
             .unwrap();
     }
     assert_eq!(bad, 0, "{name} differs from the normalized real shot");
+    fb
 }
 
 /// The SECOND dialogue hold at normalized-shot parity (oracle a1, pinned
@@ -467,6 +468,48 @@ fn l01_pickup_hint_at_parity() {
         "the pickup-proximity hint is showing"
     );
     assert_frame(&mut s, "l01_pickup_hint", "l01_pickup_hint_norm.png");
+}
+
+/// The intro page (m=10) at a FIXED-SCROLL normalized shot (mirrors
+/// `oracle/to_textpages.txt` -> `artifacts/textpages`): the page auto-scrolls
+/// on the wall clock, so both sides pin `g:S = 180` (every intro line lands
+/// on the visible LCD; the end condition stays false — final y 326 > the 305
+/// limit) and shoot. First pixel gate for the mode-10 render — the parchment
+/// body text; the m10 bottom bar (0xE9E1C3) + down arrow land in the clipped
+/// 320..345 band.
+#[test]
+fn l01_intro_fixed_scroll_at_parity() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53); // class fire
+    for _ in 0..400 {
+        s.tick(50);
+        if s.mode() == 10 {
+            break;
+        }
+    }
+    assert_eq!(s.mode(), 10, "never reached the intro page");
+    for _ in 0..40 {
+        s.tick(50); // ~2s into the roll, like the oracle drive
+    }
+    assert_eq!(s.mode(), 10);
+    s.set_scroll(180);
+    let fb = assert_frame(&mut s, "l01_intro_g180", "l01_intro_g180_norm.png");
+    // The m10 tail (parchment bar + the group-53 down arrow at final y 326 >
+    // the 305 limit) lands wholly in the clipped 320..345 logical band — no
+    // oracle can see it, so at least pin that the arrow INKED the band (the
+    // bar itself matches the page fill, so only the arrow leaves a trace).
+    let mut inked = 0;
+    for y in game::paint::LCD_H..game::paint::SCREEN_H {
+        for x in 0..game::paint::SCREEN_W {
+            if fb.get(x, y) != 0xE9_E1_C3 {
+                inked += 1;
+            }
+        }
+    }
+    assert!(
+        inked > 0,
+        "the m10 down arrow should ink the clipped band (tail liveness)"
+    );
 }
 
 /// The intro text page is fed by op66 (`b.e(String)` = lang 445 via the L01

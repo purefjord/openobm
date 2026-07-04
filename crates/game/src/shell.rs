@@ -19,20 +19,21 @@
 //! byte-for-byte against the real runtime (`tests/level_load.rs`).
 //!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - the mode-10 intro-page RENDER (the text body + end transition are
-//!   ported; the m10 scroll-arrow/parchment-bar paint tail is not — the
-//!   gameplay (0) and please-wait (15) paints ARE ported at normalized-shot
-//!   byte parity, see `gpaint`);
 //! - the in-game `n()` action menu (mode 2) and the quick heal/fatigue keys
 //!   yield [`Leave::GameKey`]; Custom Controls (mode 5), the overview stat
 //!   tables (mode 18), Save/Load/overwrite (13/14/16) and the shop yield
 //!   [`Leave::Mode`]; the player-death screen (mode 11) asserts in
-//!   `World::remove_actor`; the mode-9 outro end-transition is loud;
+//!   `World::remove_actor`;
+//! - the mode-9 outro end-transition is loud (its null-all keeps `b.var_j_a`
+//!   alive for a later spawner reuse — needs a player stash, outro slice);
 //! - `b()Z` (RecordStore has-save probe) is modeled as `false` — the pinned
 //!   wiped-RMS baseline (no "Continue" item); the save-capture slice lifts it;
-//! - mode 4 (About) renders fenced — its credits roll always draws a scroll
-//!   ARROW (`.cml` frame render, unported) and is animated/visual-only;
 //! - the in-game `f.java` menus (`f.a:B == 1`) stay out of slice.
+//!
+//! The mode-10 intro page and the mode-4 About credits RENDER fully (the
+//! body + the clipped-band arrow/parchment tails, see `paint_text_page`),
+//! gated at fixed-scroll normalized shots; their rolls stay animated
+//! (wall-clock scroll), so free-running frames are visual-only.
 
 use crate::asset::Assets;
 use crate::fb::Fb;
@@ -95,7 +96,7 @@ pub enum Screen {
     ExitDialog,   // m=19
     ControlsPage, // m=17 (Basic Controls text page)
     OverviewPage, // m=23 (Game Overview text page)
-    AboutRoll,    // m=4 (animated credits — visual-only, render fenced)
+    AboutRoll,    // m=4 (animated credits; gated at a fixed-scroll shot)
     PleaseWait,   // m=15 (level-load anim — visual-only)
     IntroText,    // m=10 (the level intro page, auto-scrolls into mode 0)
     Gameplay,     // m=0
@@ -739,14 +740,15 @@ impl Shell {
         if self.mode == 8 && self.vm.key_gate && self.blink_ms == -1 {
             self.blink_ms = 500;
         }
-        // Paint-side end-of-text check for the intro page: the real loop
-        // paints every frame and the m=10 -> m=0 transition lives in the paint
-        // tail; our render is fenced for mode 10, so evaluate the (pure)
-        // final-line y here each frame instead.
-        if self.mode == 10 {
+        // Paint-side end-of-text checks for the auto-scrolling pages: the
+        // real loop paints every frame and the m=10 -> m=0 / m=4 -> m=3
+        // transitions live in the paint tail; our render only runs at shots,
+        // so evaluate the (pure) final-line y here each frame instead
+        // (render for 4/10 correspondingly skips the end check).
+        if matches!(self.mode, 10 | 4) {
             let fy = self.text_final_y();
             self.text_page_end(fy)
-                .expect("the mode-10 end transition is ported");
+                .expect("the mode-10/4 end transitions are ported");
         }
         // The paint's per-frame STATE effects for mode 0 (the real loop paints
         // every frame): r() camera recenter, q() visible range, and b(G)'s
@@ -765,7 +767,7 @@ impl Shell {
 
     /// The text-page paint's final line y, computed without painting: `3 +
     /// g:S` plus one pitch (`smallH + 1`) per wrapped line (an empty paragraph
-    /// still advances one pitch). Mode 10 never takes the m=21 skip-first or
+    /// still advances one pitch). Modes 10/4 never take the m=21 skip-first or
     /// per-paint decrement.
     fn text_final_y(&self) -> i32 {
         let small_h = self
@@ -1491,6 +1493,23 @@ impl Shell {
         self.mode
     }
 
+    /// The wrapped text-page model (`a:[Ljava/util/Vector;`) — the fixed-
+    /// scroll anchor tests derive the mask corpus from it.
+    pub fn text_pages(&self) -> &[Vec<String>] {
+        &self.text_pages
+    }
+
+    /// The text-page scroll `g:S` — read/set for the fixed-scroll anchors
+    /// (the oracle side injects the same value via `setscroll`).
+    pub fn scroll_value(&self) -> i16 {
+        self.scroll
+    }
+
+    pub fn set_scroll(&mut self, g: i16) {
+        self.scroll = g;
+        self.scroll_acc = 0; // h:S = 0
+    }
+
     /// `notifyDestroyed()` fired (YES on the exit dialog): the MIDlet is dead;
     /// the real `run()` loop has exited (mode 12) and the JVM is going down.
     pub fn exited(&self) -> bool {
@@ -1546,9 +1565,13 @@ impl Shell {
                 )?;
             }
             9 | 21 => {
+                let ui = self.ui_model.clone();
+                let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
                 let final_y = paint_text_page(
                     &mut fb,
                     &self.masks,
+                    &self.assets,
+                    ui_ref,
                     self.mode,
                     &self.text_pages,
                     &mut self.scroll,
@@ -1558,9 +1581,13 @@ impl Shell {
             }
             17 | 23 => {
                 let title = self.lang.get(self.topic).to_string();
+                let ui = self.ui_model.clone();
+                let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
                 let final_y = paint_text_page(
                     &mut fb,
                     &self.masks,
+                    &self.assets,
+                    ui_ref,
                     self.mode,
                     &self.text_pages,
                     &mut self.scroll,
@@ -1568,16 +1595,27 @@ impl Shell {
                 );
                 self.text_page_end(final_y)?;
             }
-            4 => anyhow::bail!(
-                "About (mode 4) render fenced: the credits roll always draws \
-                 a scroll arrow (.cml frame render, unported) and is animated \
-                 — visual-only, never gated"
-            ),
-            10 => anyhow::bail!(
-                "intro text page (mode 10) render fenced: animated auto-scroll \
-                 with the parchment scroll-arrow bar (.cml frame render, \
-                 unported) — visual-only; its END transition (mode 0) is state"
-            ),
+            4 | 10 => {
+                // About credits roll / the intro page: the body + the
+                // clipped-band tails (About bottom bar + BACK; the m10
+                // parchment bar; the 53/54 scroll arrows from b:Ld). Their
+                // per-frame END transitions live in `tick` (the real loop
+                // paints every frame; render here is one of those paints,
+                // pixel-realized — running the end debounce again would
+                // double-count it).
+                let ui = self.ui_model.clone();
+                let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
+                paint_text_page(
+                    &mut fb,
+                    &self.masks,
+                    &self.assets,
+                    ui_ref,
+                    self.mode,
+                    &self.text_pages,
+                    &mut self.scroll,
+                    None,
+                );
+            }
             0 => {
                 let level_model = self
                     .level_model
@@ -1638,11 +1676,18 @@ impl Shell {
                 match self.mode {
                     17 | 23 => self.end_latched = true, // p:Z = 1
                     21 => {}
-                    4 => self.set_mode(3),
+                    4 => {
+                        // 3690-3718: mode 3, then the page reset
+                        // (k:B = f:Z ? 5 : 0). The real 3s freeze
+                        // (Thread.sleep) is elided in the virtual timeline.
+                        self.set_mode(3);
+                        self.page = if self.left_gameplay { 5 } else { 0 };
+                    }
                     10 => self.set_mode(0), // the intro chains into gameplay
                     other => anyhow::bail!(
                         "text-page end transition for mode {other} not ported \
-                         (the mode-9 outro menu-reset chain)"
+                         (the mode-9 outro chain nulls ALL actor slots while \
+                         b.var_j_a survives — needs a player stash, outro slice)"
                     ),
                 }
             }

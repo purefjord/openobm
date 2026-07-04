@@ -195,6 +195,34 @@ fn left_wraps_to_last_item() {
     assert_eq!(s.screen(), Some(Screen::ExitDialog));
 }
 
+/// The About credits at a FIXED-SCROLL normalized shot (mirrors
+/// `oracle/to_about.txt` -> `artifacts/textpages`): the roll auto-scrolls on
+/// the wall clock, so both sides pin `g:S = -50` (the oracle pauses the loop
+/// and injects via `setscroll`) and shoot. First pixel gate for the mode-4
+/// render — body text + the `1~` gold credits markup; the up arrow and
+/// bottom bar land in the clipped 320..345 band.
+#[test]
+fn about_fixed_scroll_at_parity() {
+    let mut s = shell_at_title();
+    tap(&mut s, 53); // title key -> menu
+    for _ in 0..20 {
+        s.tick(50);
+    }
+    assert_eq!(s.screen(), Some(Screen::MainMenu));
+    tap(&mut s, 54); // right -> Help
+    tap(&mut s, 54); // right -> About
+    tap(&mut s, 53); // fire
+    assert_eq!(s.screen(), Some(Screen::AboutRoll));
+    for _ in 0..40 {
+        s.tick(50); // ~2s into the roll, like the oracle drive
+    }
+    assert_eq!(s.screen(), Some(Screen::AboutRoll));
+    s.set_scroll(-50);
+    s.normalize_for_shot();
+    let fb = s.render().expect("About paint");
+    assert_parity(&fb, "about_g-50.png", "about_g-50");
+}
+
 /// The exit-dialog choreography at parity (mirrors `oracle/to_exit.txt` ->
 /// `artifacts/exit`): LEFT from New Game wraps the carousel to Exit, fire
 /// opens the m=19 confirm (static -> gated), NO returns to the menu with the
