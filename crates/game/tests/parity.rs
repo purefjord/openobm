@@ -14,7 +14,7 @@
 
 use game::asset::Assets;
 use game::fb::Fb;
-use game::paint::{paint_menu_page, MenuPage, LCD_H, SCREEN_H, SCREEN_W};
+use game::paint::{paint_menu_page, paint_title, MenuPage, LCD_H, SCREEN_H, SCREEN_W};
 use game::text::TextMasks;
 use std::path::PathBuf;
 
@@ -36,6 +36,22 @@ fn assert_parity(fb: &Fb, fixture: &str, label: &str) {
         let _ = diff.save_png(&out.join(format!("{label}_diff.png")));
     }
     assert_eq!(bad, 0, "{label}: {bad} pixels differ from {fixture}");
+}
+
+#[test]
+fn title_matches_oracle() {
+    // mode 8 title, blink-ON phase: cream bg (op10's 0xF5F2E2) + /5.png logo
+    // centered on (120,172) + "Press any key".
+    let mut fb = Fb::new(SCREEN_W, SCREEN_H);
+    paint_title(
+        &mut fb,
+        &masks(),
+        &Assets::new(root().join("assets")),
+        0xF5_F2_E2,
+        true,
+    )
+    .unwrap();
+    assert_parity(&fb, "title.png", "title");
 }
 
 #[test]

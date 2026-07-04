@@ -71,6 +71,47 @@ fn draw_centered_item(fb: &mut Fb, masks: &TextMasks, s: &str, y: i32, rgb: u32)
     }
 }
 
+/// Paint the title screen (`b.paint` case 8). Background `bg` is the color set
+/// by the boot script's `op10` (`b.b(anim,color)` -> `n:I`; the final title
+/// frame uses cream `0xF5F2E2`). The logo is `b:Ld` frame `m:I` (startup.cml
+/// record `m:I`, a static full-image) centered on `(c:S, d:S) = (120, 172)`.
+/// "Press any key" (small-bold black) is drawn only on the blink-ON phase
+/// (`i:Z`) once the script key-gate (`e.a:Z`) is set; centered, below the logo.
+///
+/// `blink_on` is the shell's current blink phase. The two phases are separate
+/// static frames (both captured); the test matches whichever the deterministic
+/// schedule lands on — no mask needed.
+pub fn paint_title(
+    fb: &mut Fb,
+    masks: &TextMasks,
+    assets: &Assets,
+    bg: u32,
+    blink_on: bool,
+) -> anyhow::Result<()> {
+    fb.fill(bg);
+    // startup.cml record 5 = /5.png, a static full image (no sub-rects), drawn
+    // centered on (120, 172). (The boot anim steps records 1..5; the settled
+    // title is frame 5. Rendering intermediate frames is the animated-boot
+    // sub-slice — visual-review only, not gated.)
+    let logo = assets.image("/5.png")?;
+    let (lw, lh) = (logo.w as i32, logo.h as i32);
+    draw_image(fb, &logo, 120 - lw / 2, 172 - lh / 2);
+    if blink_on {
+        let s = "Press any key";
+        let w = masks.string_width(GameFont::SmallBold, s);
+        // y = d:S + logoH/2 + 12
+        masks.stamp(
+            fb,
+            GameFont::SmallBold,
+            s,
+            120 - w / 2,
+            172 + lh / 2 + 12,
+            0x00_00_00,
+        );
+    }
+    Ok(())
+}
+
 /// Paint a mode-3 menu page (`b.paint` case 3). `banner` is `/main.png`
 /// (the flame art, `c:Image`), `items` the page's carousel entries
 /// (`a:[[String[k]`), and `cursor` the current index (`e:[B[k]`).
