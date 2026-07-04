@@ -12,21 +12,25 @@
 //! (op29 -> loader on `/startup2.scr`), the lang load (op56), and the menu
 //! entry (op44 -> `b.e()`). Nothing on this path is seeded or modeled.
 //!
+//! The class fire runs the REAL level load (`a("/l01_1.scr")`, mode
+//! 6->15->10->0) through the `b`/`e` world layer ([`crate::world`] +
+//! [`crate::vm`]): the whole L01 choreography (map, spawns, class init +
+//! equips, overlays, camera, dialogue) is ported and state-validated
+//! byte-for-byte against the real runtime (`tests/level_load.rs`).
+//!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - firing a class yields [`Leave::LoadLevel`] — the level load
-//!   (`a("/l01_1.scr")`, mode 6->15->0) is the gameplay slice. The exit
-//!   dialog (19), Help (menu page 6), About (4), Basic Controls (17) and
-//!   Game Overview (23) ARE ported; Custom Controls (mode 5), the overview
-//!   stat tables (mode 18), Save/Load/overwrite (13/14/16) and the pause
-//!   items yield [`Leave::Mode`];
+//! - the gameplay/please-wait/intro-page PAINTS (`render()` bails for modes
+//!   0/15/10 — the state slice landed first; screenshot parity is next);
+//! - the in-game `n()` action menu (mode 2) and the quick heal/fatigue keys
+//!   yield [`Leave::GameKey`]; Custom Controls (mode 5), the overview stat
+//!   tables (mode 18), Save/Load/overwrite (13/14/16) and the shop yield
+//!   [`Leave::Mode`]; the player-death screen (mode 11) asserts in
+//!   `World::remove_actor`; the mode-9 outro end-transition is loud;
 //! - `b()Z` (RecordStore has-save probe) is modeled as `false` — the pinned
 //!   wiped-RMS baseline (no "Continue" item); the save-capture slice lifts it;
-//! - rendering an unported paint mode is an error; mode 4 (About) renders
-//!   fenced too — its credits roll always draws a scroll ARROW (`.cml` frame
-//!   render, unported) and is animated/visual-only anyway;
-//! - the mode-15 please-wait anim, floating-text overlay (`a(J)`), key-name
-//!   substitution (`d(char)` redefine buffer), and the in-game `f.java`
-//!   menus stay out of slice.
+//! - mode 4 (About) renders fenced — its credits roll always draws a scroll
+//!   ARROW (`.cml` frame render, unported) and is animated/visual-only;
+//! - the in-game `f.java` menus (`f.a:B == 1`) stay out of slice.
 
 use crate::asset::Assets;
 use crate::fb::Fb;

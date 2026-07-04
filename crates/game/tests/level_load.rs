@@ -109,6 +109,166 @@ fn class_fire_loads_l01_into_gameplay() {
     assert!(s.world.respawn != [0, 0], "op71 set the respawn anchor");
 }
 
+/// The post-choreography MAP STATE against the REAL game: `oracle/to_l01.txt`
+/// drove the real jar to the same first-dialogue hold and `dumpjtm`'d the
+/// live layers (collision + the visual layer Vector, flat unsigned bytes,
+/// x*height+y). Every op18/22/49 write lands during the deterministic load
+/// choreography, so the state is settled at the hold — diff byte-for-byte.
+#[test]
+fn l01_layers_match_the_real_game_at_dialogue1() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..4000 {
+        s.tick(50);
+        if s.mode() == 0 && s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(
+        s.world.dialogue.is_some(),
+        "never reached the dialogue hold"
+    );
+    let mut out = String::new();
+    out.push_str(&format!("layers={}\n", 1 + s.world.layers.len()));
+    let mut dump = |layer: &[i8]| {
+        let line = layer
+            .iter()
+            .map(|&v| (v as u8).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&line);
+        out.push('\n');
+    };
+    dump(&s.world.collision);
+    for layer in &s.world.layers {
+        dump(layer);
+    }
+    let fixture =
+        std::fs::read_to_string(root().join("tests/fixtures/oracle/l01_layers_dialogue1.txt"))
+            .unwrap()
+            .replace("\r\n", "\n");
+    assert_eq!(out, fixture, "L01 layer state differs from the real game");
+}
+
+/// The post-choreography WORLD STATE against the REAL game: `dumpworld` read
+/// the live actor array + world scalars at the same first-dialogue hold. The
+/// dump carries only settled-deterministic fields (walkers have ARRIVED at
+/// their exact targets behind the op21 gate; stats/equipment are op-driven;
+/// wall-clock-coupled timers/anim/camera-offset state is excluded) — so the
+/// whole spawn + class-init + equip + attr choreography diffs byte-for-byte.
+#[test]
+fn l01_world_state_matches_the_real_game_at_dialogue1() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..4000 {
+        s.tick(50);
+        if s.mode() == 0 && s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(
+        s.world.dialogue.is_some(),
+        "never reached the dialogue hold"
+    );
+
+    let mut out = String::new();
+    out.push_str("# world dump: per-actor deterministic fields at a settled hold\n");
+    for (n, slot) in s.world.actors.iter().enumerate() {
+        let Some(a) = slot else { continue };
+        out.push_str(&format!(
+            "actor {n} c={} f={} o={} j={} r={} t={} y={} z={} u={} s={} k={} p={} g={} v={} dead={}",
+            a.var_byte_c, a.var_byte_f, a.var_byte_o, a.var_byte_j, a.var_byte_r, a.var_byte_t,
+            a.var_byte_y, a.var_byte_z, a.var_byte_u, a.var_byte_s, a.var_byte_k, a.var_byte_p,
+            a.var_byte_g, a.var_byte_v, a.var_byte_q,
+        ));
+        out.push_str(&format!(
+            " st={},{},{},{},{},{},{}",
+            a.var_short_s,
+            a.var_short_t,
+            a.var_short_u,
+            a.var_short_v,
+            a.var_short_w,
+            a.var_short_x,
+            a.var_short_y,
+        ));
+        out.push_str(&format!(" hp={}/{}", a.var_short_q, a.var_short_o));
+        out.push_str(&format!(" fat={}/{}", a.var_short_r, a.var_short_p));
+        out.push_str(&format!(
+            " E={} F={} m={} az={}",
+            a.e_field, a.f_field, a.var_short_m, a.var_short_z
+        ));
+        out.push_str(&format!(
+            " pos={},{}",
+            a.var_int_arr_b[0], a.var_int_arr_b[1]
+        ));
+        out.push_str(&format!(
+            " walk={},{}",
+            a.var_int_arr_j[0], a.var_int_arr_j[1]
+        ));
+        let armor = a
+            .var_int_arr_n
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        out.push_str(&format!(" armor={armor}"));
+        let inv: Vec<String> = a
+            .var_int_arr_k
+            .iter()
+            .take_while(|&&v| v != 0)
+            .map(ToString::to_string)
+            .collect();
+        out.push_str(&format!(
+            " inv={}",
+            if inv.is_empty() {
+                "-".into()
+            } else {
+                inv.join(",")
+            }
+        ));
+        out.push_str(&format!(
+            " spell={}",
+            a.var_int_arr_l
+                .as_ref()
+                .map(|w| w[0].to_string())
+                .unwrap_or_else(|| "-".into())
+        ));
+        out.push_str(&format!(" model={}", a.model_name));
+        out.push_str(&format!(
+            " name={}\n",
+            a.display_name.as_deref().unwrap_or("-")
+        ));
+    }
+    out.push_str(&format!(
+        "cam={} respawn={},{} gold={} hud={} lock={} speaker={} dlg={} pickups={}\n",
+        s.world.cam_follow,
+        s.world.respawn[0],
+        s.world.respawn[1],
+        s.world.gold,
+        i32::from(s.world.hud_enabled),
+        i32::from(!s.world.input_unlocked),
+        s.world.speaker.as_deref().unwrap_or("-"),
+        i32::from(s.world.dialogue.is_some()),
+        if s.world.pickup_count == 0 {
+            "-".into()
+        } else {
+            s.world.pickups[..s.world.pickup_count as usize]
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+    ));
+    let dlg = s.world.dialogue.as_ref().unwrap();
+    out.push_str(&format!("dialogue:|{}\n", dlg.lines.join("|")));
+
+    let fixture =
+        std::fs::read_to_string(root().join("tests/fixtures/oracle/l01_world_dialogue1.txt"))
+            .unwrap()
+            .replace("\r\n", "\n");
+    assert_eq!(out, fixture, "L01 world state differs from the real game");
+}
+
 /// The intro text page is fed by op66 (`b.e(String)` = lang 445 via the L01
 /// overlay lang table) and auto-scrolls without input.
 #[test]

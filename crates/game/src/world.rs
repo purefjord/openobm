@@ -207,7 +207,7 @@ impl World {
             respawn: [0, 0],
             input_unlocked: true,
             consume_key: false,
-            combat_flag: false,
+            combat_flag: true, // <clinit>: var_boolean_c = true
             hud_enabled: true,
             gold: 0,
             hud: None,
@@ -247,10 +247,18 @@ impl World {
         Ok(())
     }
 
-    /// The `a(String)` loader's actor reset (b.java:341-348): null all slots
-    /// (the player object survives in `var_j_a` for the spawner's slot-0
-    /// reuse) and break the player's summon link.
+    /// The `a(String)` loader's world reset (b.java:313-348): map layers
+    /// dropped, input unlocked, the combat flag re-armed (`var_boolean_c =
+    /// true` — the spawner copies it into the player's collide flag), the
+    /// camera/actor bookkeeping cleared; then null all slots (the player
+    /// object survives in `var_j_a` for the spawner's slot-0 reuse) and break
+    /// the player's summon link.
     pub fn reset_actors_for_load(&mut self) {
+        self.input_unlocked = true;
+        self.combat_flag = true;
+        self.max_actor = 0;
+        self.cam_follow = -1;
+        self.view = [0, 0];
         if let Some(p) = self.actors[0].as_mut() {
             p.var_j_c = -1;
         }
