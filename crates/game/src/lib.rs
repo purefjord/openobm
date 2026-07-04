@@ -11,4 +11,5 @@ pub mod asset;
 pub mod fb;
 pub mod paint;
 pub mod script;
+pub mod shell;
 pub mod text;
