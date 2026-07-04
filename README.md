@@ -69,6 +69,33 @@ Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
 > This is the foundation for byte-diffing runtime behavior (opcode execution
 > traces, save blobs) and for screenshot parity.
 
+## Screenshot parity (the `b.java` loop — M11)
+
+Separate from the byte-identical *data* table above: the interactive loop is
+wall-clock + input-driven, so its ground truth is **LCD frames**. One input
+script (the `oracle/OracleRun` grammar: `wait`/`tap`/`shot`) drives both the
+real jar on FreeJ2ME and the Rust `crates/game` shell; the shell's rendered
+frame is compared to the real LCD snapshot at each `shot`. All text is captured
+from FreeJ2ME's own `drawString` path as whole-string ink masks
+(antialiasing is off — text is a binary mask), so a match is pixel-exact.
+
+`cargo test -p game`:
+
+| Checkpoint | Scope | Result |
+|---|---|---|
+| whole-string text | every on-path label stamped at the recon `(x,y,font,color)` vs the real title/menu/class-select frames | byte-identical |
+| title (`m=8`) | cream bg + `/5.png` logo centered on (120,172) + "Press any key" (blink-ON phase) | byte-identical |
+| main menu (`m=3 k=0`) | `/main.png` + red `<< >>` + centered "New Game" (empty-RMS baseline) | byte-identical |
+| class select (`m=3 k=1`) | `/main.png` + green header + carousel class name + clipped "BACK" | byte-identical |
+| driven flow | one input script (title → fire → menu → fire → class select) through the ported `b(J)` mode machine, each `shot` diffed | byte-identical |
+
+Static, input-settled screens only. Animated screens (the boot splash, the
+ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
+this milestone — never behind the byte-identical gate. Masks (e.g. for the
+500ms title blink) are not used: the two blink phases are separate captured
+frames and the deterministic schedule lands on a known one. Fixtures under
+`tests/fixtures/oracle/frames/` are regenerated only from **our** oracle.
+
 ## Verified corrections to `spec.txt`
 
 Checked against the decompiled source / bytecode (the spec said to trust but verify):
