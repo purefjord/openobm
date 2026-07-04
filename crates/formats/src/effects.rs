@@ -28,6 +28,7 @@
 //! rendering — it doesn't affect simulation state.
 
 use crate::actor::Actor;
+use crate::actor::{Tables, WorldEvent};
 use crate::anim::Anim;
 use crate::combat::{combat_distance, melee_attack};
 use crate::rng::JavaRandom;
@@ -188,12 +189,16 @@ impl Effects {
 
     /// `i.a(long l)`: advance the whole pool by `l` ms. `model` is the
     /// `/oh_magic.cml` [`Anim`]; `actors` is `b.var_j_arr_a` (25 slots); `rng` is
-    /// the shared combat RNG (`melee_attack` draws from it on a hit).
+    /// the shared combat RNG (`melee_attack` draws from it on a hit); `tables` +
+    /// `events` feed a lethal hit's death branch.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         l: i64,
         model: &mut Anim,
         actors: &mut [Option<Actor>],
+        tables: &mut Tables,
+        events: &mut Vec<WorldEvent>,
         rng: &mut JavaRandom,
     ) {
         let mut s = 0;
@@ -249,7 +254,9 @@ impl Effects {
                 let origin = [self.get(s + 5), self.get(s + 6)];
                 // In range and no hit -> keep flying. (Faithfully, this reads the
                 // slot even right after a clear above; the original does too.)
-                if combat_distance(&pos, &origin) <= 750 && !self.collision_hit(s, actors, rng) {
+                if combat_distance(&pos, &origin) <= 750
+                    && !self.collision_hit(s, actors, tables, events, rng)
+                {
                     s += STRIDE;
                     continue;
                 }
@@ -307,6 +314,8 @@ impl Effects {
         &mut self,
         slot: usize,
         actors: &mut [Option<Actor>],
+        tables: &mut Tables,
+        events: &mut Vec<WorldEvent>,
         rng: &mut JavaRandom,
     ) -> bool {
         let pos = [self.get(slot + 1), self.get(slot + 2)];
@@ -315,8 +324,10 @@ impl Effects {
             self.clear(slot as i32);
             return false;
         }
-        let firer = match &actors[(n5 - 1) as usize] {
-            Some(a) => a.clone(),
+        // Take the firer out so a kill can mutate it (swing-timer reset + XP),
+        // mirroring Java's object ref; the target scan skips its slot anyway.
+        let mut firer = match actors[(n5 - 1) as usize].take() {
+            Some(a) => a,
             None => {
                 self.clear(slot as i32);
                 return false;
@@ -337,13 +348,25 @@ impl Effects {
             target = n6 as i32;
             best = d;
         }
-        if target != -1 {
+        let hit = if target != -1 {
             let mut tgt = actors[target as usize].take().unwrap();
-            melee_attack(&firer, (n5 - 1) as usize, &mut tgt, actors, false, rng);
+            melee_attack(
+                &mut firer,
+                (n5 - 1) as usize,
+                &mut tgt,
+                actors,
+                false,
+                tables,
+                events,
+                rng,
+            );
             actors[target as usize] = Some(tgt);
-            return true;
-        }
-        false
+            true
+        } else {
+            false
+        };
+        actors[(n5 - 1) as usize] = Some(firer);
+        hit
     }
 }
 
@@ -404,10 +427,24 @@ mod tests {
         // Each call adds 200ms to the step timer (>100 -> one frame step).
         // frame counter +4 goes 1,2,3; at 3 (== frame_count) seek is past-end.
         for _ in 0..2 {
-            e.update(200, &mut model, &mut actors, &mut rng);
+            e.update(
+                200,
+                &mut model,
+                &mut actors,
+                &mut Tables::default(),
+                &mut Vec::new(),
+                &mut rng,
+            );
         }
         assert_eq!(e.raw()[s + 4], 2); // stepped to frame 2, not yet past end
-        e.update(200, &mut model, &mut actors, &mut rng);
+        e.update(
+            200,
+            &mut model,
+            &mut actors,
+            &mut Tables::default(),
+            &mut Vec::new(),
+            &mut rng,
+        );
         // +4 incremented to 3, seek(9,3) past-end, lifetime>0 -> held (|0xFF00).
         assert_eq!(e.get(s + 4) & 0xFF00, 65280);
         assert_ne!(e.raw()[s], -1); // still alive (held, waiting on lifetime)
@@ -421,10 +458,24 @@ mod tests {
         let mut e = Effects::new();
         let s = e.spawn_world(9, 0, 0, 0); // lifetime 0
                                            // step1: +4=1 (seek(9,1) not past end for 2 frames) -> survives
-        e.update(200, &mut model, &mut actors, &mut rng);
+        e.update(
+            200,
+            &mut model,
+            &mut actors,
+            &mut Tables::default(),
+            &mut Vec::new(),
+            &mut rng,
+        );
         assert_ne!(e.raw()[s as usize], -1);
         // step2: +4=2, seek(9,2) past-end, lifetime<=0 -> cleared
-        e.update(200, &mut model, &mut actors, &mut rng);
+        e.update(
+            200,
+            &mut model,
+            &mut actors,
+            &mut Tables::default(),
+            &mut Vec::new(),
+            &mut rng,
+        );
         assert_eq!(e.raw()[s as usize], -1);
     }
 
@@ -445,7 +496,14 @@ mod tests {
         actors[0] = Some(a.clone());
         let s = e.spawn_actor(0, 2, &a, 0) as usize;
         assert_eq!(e.get(s) & 0xFF, 0); // kind 0
-        e.update(200, &mut model, &mut actors, &mut rng);
+        e.update(
+            200,
+            &mut model,
+            &mut actors,
+            &mut Tables::default(),
+            &mut Vec::new(),
+            &mut rng,
+        );
         assert_eq!(e.get(s + 2), 440); // y: 500 - 60
         assert_eq!(e.get(s + 1), 500); // x unchanged
     }
@@ -489,6 +547,13 @@ mod tests {
         let mut e = Effects::new();
         let firer = actors[0].clone().unwrap();
         e.spawn_actor(0, 2, &firer, 0);
-        e.update(200, model, actors, rng);
+        e.update(
+            200,
+            model,
+            actors,
+            &mut Tables::default(),
+            &mut Vec::new(),
+            rng,
+        );
     }
 }

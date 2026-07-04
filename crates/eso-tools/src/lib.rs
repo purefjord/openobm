@@ -566,7 +566,7 @@ pub fn dump_combat_sweep() -> Result<String> {
                 for &a in &tgt_a {
                     for &v in &tgt_v {
                         for &bb in &tgt_b {
-                            let attacker = Actor {
+                            let mut attacker = Actor {
                                 var_byte_c: 0,
                                 var_byte_o: 5,
                                 var_byte_t: 0,
@@ -595,8 +595,16 @@ pub fn dump_combat_sweep() -> Result<String> {
                                 ..Default::default()
                             };
                             let mut rng = JavaRandom::new(seed);
-                            let (died, outcome) =
-                                melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
+                            let (died, outcome) = melee_attack(
+                                &mut attacker,
+                                0,
+                                &mut target,
+                                &[],
+                                true,
+                                &mut Tables::default(),
+                                &mut Vec::new(),
+                                &mut rng,
+                            );
                             let probe = rng.next_int();
                             writeln!(
                                 out,
@@ -627,7 +635,7 @@ pub fn dump_combat_sweep() -> Result<String> {
     for seed in 0..10i64 {
         for &(c, bl, wi) in &cfgs {
             for &lvl in &lvls {
-                let attacker = Actor {
+                let mut attacker = Actor {
                     var_byte_c: c as i8,
                     var_byte_o: lvl as i8,
                     var_byte_t: 0,
@@ -656,7 +664,16 @@ pub fn dump_combat_sweep() -> Result<String> {
                     ..Default::default()
                 };
                 let mut rng = JavaRandom::new(seed);
-                let (died, outcome) = melee_attack(&attacker, 0, &mut target, &[], bl, &mut rng);
+                let (died, outcome) = melee_attack(
+                    &mut attacker,
+                    0,
+                    &mut target,
+                    &[],
+                    bl,
+                    &mut Tables::default(),
+                    &mut Vec::new(),
+                    &mut rng,
+                );
                 let probe = rng.next_int();
                 writeln!(
                     out,
@@ -686,7 +703,7 @@ pub fn dump_combat_sweep() -> Result<String> {
     ];
     for seed in 0..5i64 {
         for tp in tpos {
-            let attacker = Actor {
+            let mut attacker = Actor {
                 var_byte_c: 0,
                 var_byte_o: 5,
                 var_byte_t: 0,
@@ -718,7 +735,16 @@ pub fn dump_combat_sweep() -> Result<String> {
                 ..Default::default()
             };
             let mut rng = JavaRandom::new(seed);
-            let (died, outcome) = melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
+            let (died, outcome) = melee_attack(
+                &mut attacker,
+                0,
+                &mut target,
+                &[],
+                true,
+                &mut Tables::default(),
+                &mut Vec::new(),
+                &mut rng,
+            );
             let probe = rng.next_int();
             writeln!(
                 out,
@@ -1119,7 +1145,14 @@ pub fn dump_effects_sweep(store: &AssetStore) -> Result<String> {
         }
         let mut e = Effects::from_raw(raw);
         for &l in frames.iter() {
-            e.update(l, &mut model, &mut actors, &mut rng);
+            e.update(
+                l,
+                &mut model,
+                &mut actors,
+                &mut Tables::default(),
+                &mut Vec::new(),
+                &mut rng,
+            );
             dump_effects_pool(&mut out, l, e.raw());
         }
     }
@@ -1408,7 +1441,16 @@ pub fn dump_tick_sweep(tables_path: &str) -> Result<String> {
             // Array form (these scenarios never remove the actor and draw no RNG, so
             // the seed is irrelevant and the trace stays byte-identical).
             formats::Actor::tick(
-                0, &mut arr, &mut rng, l, false, None, &tables, &mut fx, None,
+                0,
+                &mut arr,
+                &mut rng,
+                l,
+                false,
+                None,
+                &mut tables.clone(),
+                &mut fx,
+                None,
+                &mut Vec::new(),
             );
             let a = arr[0].as_ref().expect("tick scenario removed its actor");
             write!(out, "{name} {fi} |")?;
@@ -1479,9 +1521,10 @@ pub fn dump_dot_sweep() -> Result<String> {
                 l,
                 false,
                 None,
-                &tables,
+                &mut tables.clone(),
                 &mut fx,
                 None,
+                &mut Vec::new(),
             );
             let v = actors[1]
                 .as_ref()
@@ -1539,9 +1582,10 @@ pub fn dump_corpse_sweep() -> Result<String> {
                 l,
                 false,
                 None,
-                &tables,
+                &mut tables.clone(),
                 &mut fx,
                 None,
+                &mut Vec::new(),
             );
             match actors[1].as_ref() {
                 Some(v) => writeln!(out, "{name} {fi} 1 {}", v.var_short_i)?,
@@ -1760,9 +1804,10 @@ pub fn dump_ai_sweep() -> Result<String> {
                 200,
                 false,
                 None,
-                &tables,
+                &mut tables.clone(),
                 &mut fx,
                 None,
+                &mut Vec::new(),
             );
             let a = actors[1].as_ref().expect("AI actor is never removed");
             let (tq, te, ttxt) = if watch >= 0 {
@@ -2017,9 +2062,10 @@ pub fn dump_cast_sweep(tables_path: &str) -> Result<String> {
                 200,
                 false,
                 None,
-                &tables,
+                &mut tables.clone(),
                 &mut fx,
                 Some(&map),
+                &mut Vec::new(),
             );
             let a = actors[1].as_ref().expect("caster is never removed");
             let t = actors[2].as_ref().expect("target is never removed");

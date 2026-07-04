@@ -30,7 +30,7 @@ pub mod scr;
 pub mod vm;
 pub mod world;
 
-pub use actor::{Actor, Tables};
+pub use actor::{loot_roll, Actor, Tables, WorldEvent};
 pub use anim::{Anim, AnimNode};
 pub use asset::AssetStore;
 pub use cml::{parse_cml, Cml, CmlRecord};

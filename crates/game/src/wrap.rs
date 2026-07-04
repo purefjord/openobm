@@ -26,21 +26,10 @@ const KEY_TOKENS: [&str; 4] = [
     "QUICK_MAGIKA_KEY",
 ];
 
-/// `b.a(String, Vector, int)` — wrap one paragraph into lines at `width`,
-/// measuring `c:Font` (small bold) substring widths. Greedy scan: track the
-/// last space; when the measured run reaches `width` and a space was seen,
-/// emit up to that space and restart after it.
-pub fn break_lines(masks: &TextMasks, text: &str, width: i32) -> Vec<String> {
-    for tok in KEY_TOKENS {
-        assert!(
-            !text.contains(tok),
-            "key-name substitution not ported (out of slice): {tok:?}"
-        );
-    }
-    assert!(
-        !text.contains(':'),
-        "speaker-prefix (f:String) splitting not ported (out of slice)"
-    );
+/// The raw greedy line-break loop shared by the text pages and the dialogue
+/// box: track the last space; when the measured run reaches `width` and a
+/// space was seen, emit up to that space and restart after it.
+fn greedy_wrap(masks: &TextMasks, text: &str, width: i32) -> Vec<String> {
     // NOTE the original iterates chars by Java index; the slice's corpus is
     // ASCII/Latin-1 so byte==char here (asserted).
     assert!(
@@ -71,6 +60,54 @@ pub fn break_lines(masks: &TextMasks, text: &str, width: i32) -> Vec<String> {
         lines.push(text[start..(i + 1).min(text.len())].to_string());
     }
     lines
+}
+
+/// `b.a(String, Vector, int)` — wrap one text-page paragraph into lines at
+/// `width`. The dialogue-only features (key-name tokens, speaker prefix) stay
+/// fenced on this path — the page corpus never contains them.
+pub fn break_lines(masks: &TextMasks, text: &str, width: i32) -> Vec<String> {
+    for tok in KEY_TOKENS {
+        assert!(
+            !text.contains(tok),
+            "key-name substitution not ported (out of slice): {tok:?}"
+        );
+    }
+    assert!(
+        !text.contains(':'),
+        "speaker-prefix (f:String) splitting not ported (out of slice)"
+    );
+    greedy_wrap(masks, text, width)
+}
+
+/// `b.a(String, Vector, int)` on the dialogue path (`b.f(String)`): the
+/// key-name token substitutions (from the binding-name table
+/// `var_java_lang_String_arr_b`, first occurrence each, in bytecode order),
+/// then the speaker-prefix state (`f:String`) — a set speaker prefixes
+/// `"name: "`; otherwise a `:` in the text SETS the speaker from its prefix
+/// (keeping the text as-is). `subs` carries the resolved names for
+/// [ACTION_KEY, TOGGLE_WEAPON_KEY, QUICK_HEALTH_KEY, QUICK_MAGIKA_KEY].
+pub fn wrap_dialogue(
+    masks: &TextMasks,
+    text: &str,
+    width: i32,
+    subs: &[String; 4],
+    speaker: &mut Option<String>,
+) -> Vec<String> {
+    let mut text = text.to_string();
+    for (tok, name) in KEY_TOKENS.iter().zip(subs) {
+        if let Some(i) = text.find(tok) {
+            text = format!("{}{}{}", &text[..i], name, &text[i + tok.len()..]);
+        }
+    }
+    let text = if let Some(sp) = speaker.as_ref() {
+        format!("{sp}: {text}")
+    } else {
+        if let Some(i) = text.find(':') {
+            *speaker = Some(text[..i].to_string());
+        }
+        text
+    };
+    greedy_wrap(masks, &text, width)
 }
 
 /// `b.h(String)` — the text-page builder: VERSION splice, `\n`-escape

@@ -170,6 +170,49 @@ pub struct Actor {
     /// when a buff expires.
     pub var_byte_h: i8,
 
+    // --- world coupling (the b/e-layer fields, M11 gameplay slice) ---
+    /// Inventory (`j.var_int_arr_k`, 255 slots): each entry is `kind << 8 | id`
+    /// (kind 0 = weapon, 1 = armor, 2 = consumable/spell); 0 = empty.
+    pub var_int_arr_k: Vec<i32>,
+    /// Drops-loot-on-death flag (`j.var_byte_s`, default 1; the spawner zeroes
+    /// it for the player).
+    pub var_byte_s: i8,
+    /// Death-trigger script entry (`j.var_byte_k`, default -1; set by op32 /
+    /// `h.c(j,int,int)`; pushed via `e.void_a` when the actor dies).
+    pub var_byte_k: i8,
+    /// Overlay-layer samples under the actor (`j.var_byte_l/m/n`, default -1):
+    /// the enter value, the leave value, and the action value (`h.a(j,[B[B)` /
+    /// `h.a(j,[B)`).
+    pub var_byte_l: i8,
+    pub var_byte_m: i8,
+    pub var_byte_n: i8,
+    /// Active health/fatigue regen consumable rows (`j.var_int_arr_f/g`).
+    pub var_int_arr_f: Option<Vec<i32>>,
+    pub var_int_arr_g: Option<Vec<i32>>,
+    /// The subtype-0 spawn stat row (`j.var_int_arr_o`; kept for the summon
+    /// re-spawn `b.var_b_a.a("/oh_scamp.cml", …, var_int_arr_o)`).
+    pub var_int_arr_o: Option<Vec<i32>>,
+    /// The subtype-5 class row + its `e.j` aux row (`j.var_int_arr_a` /
+    /// `j.var_int_arr_h`, set by the class init `h.a(j,byte,boolean)`).
+    pub var_int_arr_a: Option<Vec<i32>>,
+    pub var_int_arr_h: Option<Vec<i32>>,
+    /// The player's alternate weapon/spell row (`j.var_int_arr_m`, set by the
+    /// weapon-toggle `h.a(j,String)`; read by the equip gating).
+    pub var_int_arr_m: Option<Vec<i32>>,
+    /// Summon link slots (`j.var_j_c` = my summon, `j.var_j_d` = my master);
+    /// -1 = none (Java object refs, modeled as array slots).
+    pub var_j_c: i32,
+    pub var_j_d: i32,
+    /// HUD status icon anim key (`j.var_byte_v`, default -45).
+    pub var_byte_v: i8,
+    /// Dialogue-facing anim key (`j.var_byte_g`, default -1; set by op46/op53
+    /// via `h.b(j,byte)`, cleared by the e-prologue's post-dialogue reset).
+    pub var_byte_g: i8,
+    /// Model resource name (`j.var_java_lang_String_b`, e.g. "/oh_pc.cml") and
+    /// display name (`j.var_java_lang_String_c`, the op15 spawn name).
+    pub model_name: String,
+    pub display_name: Option<String>,
+
     // --- floating damage text (the rising number over an actor) ---
     /// The text to display (`j.var_java_lang_String_a`); `None` = no active text.
     /// Only its presence drives the tick; the content is set by the combat/UI code.
@@ -273,8 +316,47 @@ impl Default for Actor {
             r_field: 0,
             var_int_c: 0xFF_0000,
             var_int_d: 0,
+            var_int_arr_k: vec![0; 255],
+            var_byte_s: 1,
+            var_byte_k: -1,
+            var_byte_l: -1,
+            var_byte_m: -1,
+            var_byte_n: -1,
+            var_int_arr_f: None,
+            var_int_arr_g: None,
+            var_int_arr_o: None,
+            var_int_arr_a: None,
+            var_int_arr_h: None,
+            var_int_arr_m: None,
+            var_j_c: -1,
+            var_j_d: -1,
+            var_byte_v: -45,
+            var_byte_g: -1,
+            model_name: String::new(),
+            display_name: None,
         }
     }
+}
+
+/// A side effect an actor tick/combat resolution asks the `b`/`e` world layer to
+/// perform — the branches that reach past the actor array (script-entry pushes,
+/// loot-pickup drops, the summon spawner). Emitted in execution order; the world
+/// applies them after the per-actor call returns. Deferral is faithful: nothing
+/// later in the same `h.a` tick reads the affected state (the summoned actor is
+/// same-faction — skipped by the fall-through AoE — and the script stack only
+/// executes on the *next* `e.a` tick).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorldEvent {
+    /// `e.void_a(entry)` — push a script entry (the death trigger `var_byte_k`).
+    PushEntry(u8),
+    /// `b.var_b_a.a(item, false, tile_x, tile_y)` — drop a loot pickup marker
+    /// at the victim's corpse tile (item id already drawn from `e.int_a()`).
+    DropLoot { item: i32, x: i32, y: i32 },
+    /// `b.a(slot)` — remove an actor (the summoner replacing its old summon).
+    RemoveActor(usize),
+    /// `b.var_b_a.a("/oh_scamp.cml", x, y, row)` + link wiring — spawn a summon
+    /// for `caster` (its slot) using the caster's spawn stat row.
+    Summon { caster: usize, x: i32, y: i32 },
 }
 
 /// `h.var_byte_arr_a`: the per-state animation-group offsets. The actor's current
@@ -406,6 +488,10 @@ impl Actor {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tables {
     by_subtype: std::collections::BTreeMap<u8, Vec<Vec<i32>>>,
+    /// Subtype-5 aux lists, indexed by class id: `e.i` (class-permission tags)
+    /// and `e.j` (the per-class row `h.a(j,byte,bool)` hangs on the actor).
+    class_aux_i: Vec<Vec<i32>>,
+    class_aux_j: Vec<Vec<i32>>,
 }
 
 impl Tables {
@@ -432,6 +518,73 @@ impl Tables {
             .get(&subtype)
             .and_then(|t| t.get(idx as usize))
             .map(Vec::as_slice)
+    }
+
+    /// Mutable row access (the loot list `e.l` decrements its counts).
+    pub fn row_mut(&mut self, subtype: u8, idx: i32) -> Option<&mut Vec<i32>> {
+        if idx < 0 {
+            return None;
+        }
+        self.by_subtype
+            .get_mut(&subtype)
+            .and_then(|t| t.get_mut(idx as usize))
+    }
+
+    /// Mutable iteration over a subtype's rows (the per-load subtype-10 clear).
+    pub fn row_iter_mut(&mut self, subtype: u8) -> Option<impl Iterator<Item = &mut Vec<i32>>> {
+        self.by_subtype.get_mut(&subtype).map(|t| t.iter_mut())
+    }
+
+    /// Owned copies of the subtype-5 aux tables (for read-modify-write merges).
+    pub fn class_aux_i_rows(&self) -> Vec<Vec<i32>> {
+        self.class_aux_i.clone()
+    }
+    pub fn class_aux_j_rows(&self) -> Vec<Vec<i32>> {
+        self.class_aux_j.clone()
+    }
+
+    /// `e.boolean_a(int n, int n2)` — true if the subtype-5 aux list `e.i[n]`
+    /// (the class-permission tag list) contains `n2`. The list is stored here as
+    /// the aux rows of subtype 5 (see [`Tables::insert_class_aux`]).
+    pub fn class_allows(&self, class: i8, tag: i32) -> bool {
+        self.class_aux_i
+            .get(class.max(0) as usize)
+            .is_some_and(|l| l.contains(&tag))
+    }
+
+    /// The subtype-5 `e.j` aux row for a class (`j.var_int_arr_h`).
+    pub fn class_aux_j(&self, class: i8) -> Option<&[i32]> {
+        self.class_aux_j
+            .get(class.max(0) as usize)
+            .map(Vec::as_slice)
+    }
+
+    /// Install the subtype-5 aux lists (`e.i` / `e.j`, indexed by class id).
+    pub fn insert_class_aux(&mut self, aux_i: Vec<Vec<i32>>, aux_j: Vec<Vec<i32>>) {
+        self.class_aux_i = aux_i;
+        self.class_aux_j = aux_j;
+    }
+}
+
+/// `e.int_a()` — the loot draw: one RNG draw, then walk the subtype-10 list
+/// (`e.l`, `[30][4]`) from row 1: a row with a zero item id (`[1]`) ends the
+/// walk (no loot); the first row whose modulus matches (`n % [2] == 0`) with a
+/// positive count (`[3]`) is decremented and its item id returned. Rows never
+/// filled by a load read as zeroed.
+pub fn loot_roll(tables: &mut Tables, rng: &mut JavaRandom) -> i32 {
+    let n = rng.next_int();
+    let mut n2 = 1i32;
+    loop {
+        let item = tables.row(10, n2).map(|r| r[1]).unwrap_or(0);
+        if item == 0 {
+            return 0;
+        }
+        let row = tables.row_mut(10, n2).unwrap();
+        if n % row[2] == 0 && row[3] > 0 {
+            row[3] -= 1;
+            return row[1];
+        }
+        n2 += 1;
     }
 }
 
@@ -1038,10 +1191,522 @@ impl Actor {
         }
     }
 
-    /// `h.a(j, long l, boolean bl)` — advance this actor by `l` ms (the per-frame
-    /// per-actor update called from `b.java`'s main loop). `model` is the actor's
-    /// `var_d_a` animation [`Anim`] (its cursor is advanced; `None` = no model,
-    /// matching `g.advance(null,…)`'s no-op); `tables` feed the regen's `h.f`.
+    // ------------------------------------------------------------------
+    // The b/e-layer actor API (M11 gameplay slice): the h.java methods the
+    // script opcodes and the spawner call. All transcribed from the CFR
+    // decompile (h.java line refs in each doc comment).
+    // ------------------------------------------------------------------
+
+    /// `h.a(String, byte)` (h.java:24) — the actor factory: a fresh `j` with the
+    /// model resource name, the actor id (`var_byte_c` = slot + 1), armor slots
+    /// cleared to -1, and the collision-box extents from the model's group-1
+    /// frame width (`var_byte_a = g.a(d,1)`, `var_byte_b = a >> 1`) — passed in
+    /// by the caller, which owns the loaded [`Anim`].
+    pub fn create(model_name: &str, id: i8, frame_w: i32) -> Actor {
+        Actor {
+            model_name: model_name.to_string(),
+            var_byte_c: id,
+            var_byte_arr_a: [0, 0],
+            var_int_arr_n: [-1; 8],
+            var_byte_a: frame_w as i8,
+            var_byte_b: (frame_w as i8) >> 1,
+            ..Actor::default()
+        }
+    }
+
+    /// `h.a(j, int[])` (h.java:1046) — apply an op15 spawn stat row (subtype 0).
+    /// Non-players take the full attribute block, weapon/armor equips, and the
+    /// spell row (`e.k[row[19]]`); everyone takes level, faction, and the
+    /// health/fatigue re-derivation (+ the `E`/`F` = 300/200 defaults) + `h.f`.
+    pub fn apply_stat_row(&mut self, row: &[i32], tables: &Tables) {
+        self.var_int_arr_o = Some(row.to_vec());
+        self.var_byte_o = row[2] as i8;
+        if self.var_byte_c != 1 {
+            self.var_short_s = row[3] as i16;
+            self.var_short_t = row[4] as i16;
+            self.var_short_u = row[5] as i16;
+            self.var_short_v = row[6] as i16;
+            self.var_short_w = row[7] as i16;
+            self.var_short_x = row[8] as i16;
+            self.var_short_y = row[9] as i16;
+            self.e_field = row[14] as i16;
+            self.f_field = row[15] as i16;
+            self.var_byte_j = row[10] as i8;
+            self.var_byte_y = row[18] as i8;
+            let armor = row[11];
+            self.var_int_arr_l = tables.row(8, row[19]).map(|r| r.to_vec());
+            self.var_byte_t = i8::from(self.var_byte_y == 4);
+            if row[20] > 0 {
+                self.var_short_m = (row[20] * 1000) as i16;
+            }
+            if self.var_byte_t == 1 || self.var_byte_y == 0 {
+                self.var_int_arr_l = None;
+            }
+            if self.var_byte_j > 0 {
+                let w = tables
+                    .row(4, i32::from(self.var_byte_j))
+                    .map(<[i32]>::to_vec);
+                if let Some(w) = w {
+                    self.equip(0, &w, false, tables);
+                }
+            }
+            if armor > 0 {
+                let a = tables.row(1, armor).map(<[i32]>::to_vec);
+                if let Some(a) = a {
+                    self.equip(1, &a, false, tables);
+                }
+            }
+        }
+        self.var_byte_r = row[13] as i8;
+        self.recompute_to_full();
+        if self.e_field == 0 {
+            self.e_field = 300; // h.var_short_a
+        }
+        if self.f_field == 0 {
+            self.f_field = 200; // h.var_short_b
+        }
+        self.class_progression(tables);
+    }
+
+    /// `h.a(j, byte, boolean)` (h.java:1765) — the class init (the player on
+    /// spawn / save load). Hangs the subtype-5 class row + its `e.j` aux row on
+    /// the actor; unless `from_save`, equips the class weapon/armor rows and
+    /// takes the attribute block from the class row. Ends in `h.f`.
+    pub fn class_init(&mut self, class: i8, from_save: bool, tables: &Tables) {
+        self.var_byte_f = class;
+        if self.var_byte_f == 4 {
+            self.var_byte_t = 1;
+        }
+        let row = tables
+            .row(5, i32::from(class))
+            .map(<[i32]>::to_vec)
+            .expect("class row (subtype 5) must exist");
+        self.var_int_arr_h = tables.class_aux_j(class).map(<[i32]>::to_vec);
+        if !from_save {
+            if let Some(w) = tables.row(4, row[4]).map(<[i32]>::to_vec) {
+                self.equip(0, &w, false, tables);
+            }
+            if let Some(a) = tables.row(1, row[5]).map(<[i32]>::to_vec) {
+                self.equip(1, &a, false, tables);
+            }
+            self.var_short_s = row[7] as i16;
+            self.var_short_t = row[8] as i16;
+            self.var_short_u = row[9] as i16;
+            self.var_short_v = row[10] as i16;
+            self.var_short_w = row[6] as i16;
+            self.var_short_x = row[11] as i16;
+            self.var_short_y = row[12] as i16;
+            self.f_field = row[13] as i16;
+            self.e_field = row[14] as i16;
+        }
+        self.var_int_arr_a = Some(row);
+        self.class_progression(tables);
+    }
+
+    /// `h.boolean_a(j, int, int[])` (h.java:2122) — may this actor's class use
+    /// the weapon (`kind == 0`) / armor (`kind == 1`) row? Resolved against the
+    /// subtype-5 class-permission list (`e.boolean_a`).
+    fn class_allows_item(&self, kind: i32, row: &[i32], tables: &Tables) -> bool {
+        if self.var_byte_f == -1 {
+            return false;
+        }
+        let tag = match (kind, row[2]) {
+            (0, 1) => 5,
+            (0, 2) => 6,
+            (0, 3) => 7,
+            (0, 4) => 8,
+            (0, 0) => 14,
+            (1, 2) => 4,
+            (1, 1) => 3,
+            (1, 0) => 1,
+            _ => return true,
+        };
+        tables.class_allows(self.var_byte_f, tag)
+    }
+
+    /// `h.a(j, int, int[], boolean)` (h.java:1666) + `h.void_a` — add an item
+    /// row to the inventory (`var_int_arr_k`, tag `kind << 8 | id`) and apply
+    /// it: armor (`1`) equips into its slot if free (or `force`); consumables
+    /// (`2`) with `[5] == 0` arm the health/fatigue regen rows; a weapon (`0`)
+    /// becomes the equipped `var_byte_j` if the hand is free, the class allows
+    /// it, or `force`.
+    pub fn equip(&mut self, kind: i32, row: &[i32], force: bool, tables: &Tables) {
+        let mut n2 = 0usize;
+        while n2 < self.var_int_arr_k.len() && self.var_int_arr_k[n2] != 0 {
+            n2 += 1;
+        }
+        if n2 >= self.var_int_arr_k.len() {
+            return;
+        }
+        match kind {
+            1 => {
+                if self.var_int_arr_n[row[3] as usize] == -1 || force {
+                    self.equip_armor(row, tables);
+                }
+                self.var_int_arr_k[n2] = 0x100 | row[0];
+            }
+            2 => {
+                self.var_int_arr_k[n2] = 0x200 | row[0];
+                if row[5] != 0 {
+                    return;
+                }
+                if self.var_int_arr_f.is_none() && row[2] > 0 {
+                    self.var_int_arr_f = Some(row.to_vec());
+                    return;
+                }
+                if self.var_int_arr_g.is_none() && row[3] > 0 {
+                    self.var_int_arr_g = Some(row.to_vec());
+                }
+            }
+            0 => {
+                self.var_int_arr_k[n2] = row[0];
+                if (self.var_byte_j != 0
+                    || self.var_int_arr_l.is_some()
+                    || !self.class_allows_item(0, row, tables))
+                    && !force
+                {
+                    return;
+                }
+                self.var_byte_j = row[0] as i8;
+            }
+            _ => {}
+        }
+    }
+
+    /// `h.c(j, int[])` (h.java:1989) — equip an armor row into its slot
+    /// (`var_int_arr_n[row[3]]`), class-permission-gated, then `h.f`.
+    pub fn equip_armor(&mut self, row: &[i32], tables: &Tables) {
+        if !self.class_allows_item(1, row, tables) {
+            return;
+        }
+        self.var_int_arr_n[row[3] as usize] = row[0];
+        self.class_progression(tables);
+    }
+
+    /// `h.b(j, int, int[])` (h.java:1714) — remove an item row from the
+    /// inventory (shift-left over the first matching tag); un-equipping the held
+    /// weapon re-picks the best allowed one (`h.h`). Ends in `h.f`.
+    pub fn unequip(&mut self, kind: i32, row: &[i32], tables: &Tables) {
+        let mut repick = false;
+        let n4 = match kind {
+            1 => 0x100 | row[0],
+            2 => 0x200 | row[0],
+            0 => {
+                if self.var_byte_j == row[0] as i8 {
+                    self.var_byte_j = 0;
+                    self.var_byte_t = 0;
+                    repick = true;
+                }
+                row[0]
+            }
+            _ => 0,
+        };
+        let mut n2 = 0usize;
+        while n2 < self.var_int_arr_k.len() && self.var_int_arr_k[n2] != 0 {
+            if self.var_int_arr_k[n2] == n4 {
+                for n3 in n2..self.var_int_arr_k.len() - 1 {
+                    self.var_int_arr_k[n3] = self.var_int_arr_k[n3 + 1];
+                }
+                break;
+            }
+            n2 += 1;
+        }
+        if repick {
+            self.repick_weapon(tables);
+        }
+        self.class_progression(tables);
+    }
+
+    /// `h.h(j)` (h.java:1700) — re-pick the best allowed weapon from the
+    /// inventory (highest `row[3]`), setting `var_byte_j` + the creature flag.
+    fn repick_weapon(&mut self, tables: &Tables) {
+        let mut best: Option<Vec<i32>> = None;
+        let mut n = 0usize;
+        while n < self.var_int_arr_k.len() && self.var_int_arr_k[n] != 0 {
+            let entry = self.var_int_arr_k[n];
+            n += 1;
+            if entry > 255 {
+                continue;
+            }
+            let Some(row) = tables.row(4, entry & 0xFF).map(<[i32]>::to_vec) else {
+                continue;
+            };
+            if !self.class_allows_item(0, &row, tables) {
+                continue;
+            }
+            if best.as_ref().is_some_and(|b| row[3] <= b[3]) {
+                continue;
+            }
+            best = Some(row);
+        }
+        if let Some(b) = best {
+            self.var_byte_j = b[0] as i8;
+            self.var_byte_t = i8::from(b[2] == 4);
+        }
+    }
+
+    /// `h.a(j, int, int, e)` (h.java:1573) — the op34 attribute write, followed
+    /// by the health/fatigue re-derivation (clamping current values), the race
+    /// row refresh from the equipped weapon, the `E`/`F` defaults, and `h.f`.
+    pub fn attr_set(&mut self, attr: i32, value: i32, tables: &Tables) {
+        match attr {
+            2 => self.var_byte_o = value as i8,
+            3 => self.var_short_s = value as i16,
+            4 => self.var_short_t = value as i16,
+            5 => self.var_short_u = value as i16,
+            6 => self.var_short_v = value as i16,
+            7 => self.var_short_w = value as i16,
+            8 => self.var_short_x = value as i16,
+            9 => self.var_short_y = value as i16,
+            10 => self.var_byte_j = value as i8,
+            13 => self.var_byte_r = value as i8,
+            14 => self.e_field = value as i16,
+            15 => self.f_field = value as i16,
+            19 => self.var_int_arr_l = tables.row(8, value).map(<[i32]>::to_vec),
+            18 => {
+                self.var_byte_y = value as i8;
+                self.var_byte_t = i8::from(self.var_byte_y == 4);
+                if self.var_byte_t == 1 || self.var_byte_y == 0 {
+                    self.var_int_arr_l = None;
+                }
+            }
+            20 => self.var_short_m = (value * 1000) as i16,
+            _ => {}
+        }
+        self.recompute();
+        self.var_short_q = self.var_short_q.min(self.var_short_o);
+        self.var_short_r = self.var_short_r.min(self.var_short_p);
+        if self.var_byte_j > 0 {
+            self.var_byte_i = tables
+                .row(4, i32::from(self.var_byte_j))
+                .expect("weapon row")[3] as i8;
+        }
+        if self.e_field == 0 {
+            self.e_field = 300;
+        }
+        if self.f_field == 0 {
+            self.f_field = 200;
+        }
+        self.class_progression(tables);
+    }
+
+    /// `h.b(j, byte)` (h.java:1788) — the op46/op53 facing write (an anim key,
+    /// not the movement facing `var_byte_d`).
+    pub fn set_facing(&mut self, by: i8) {
+        self.var_byte_g = match by {
+            2 => -52,
+            1 => -53,
+            3 => -51,
+            4 => -2,
+            0 => -1,
+            _ => return,
+        };
+    }
+
+    /// `h.a(j, byte)` (h.java:559, the void `g.a(Ld;I)V` overload) — set the
+    /// animation state: state 6 marks the actor dead; a *changed* state resets
+    /// the model's anim group for the current facing.
+    pub fn set_anim(&mut self, by: i8, model: Option<&mut Anim>) {
+        if by == 6 {
+            self.var_byte_q = 1;
+        } else if self.var_byte_e != by {
+            if let Some(m) = model {
+                m.reset(i32::from(self.var_byte_d) + i32::from(ANIM_STATE_OFFSETS[by as usize]));
+            }
+        }
+        self.var_byte_e = by;
+    }
+
+    /// `h.b(j, int, int)` (h.java:345) — set the walk target (op17/41/42 and
+    /// the cutscene sequencer): the tick's move-to-target consumes it.
+    pub fn set_walk_target(&mut self, x: i32, y: i32) {
+        self.var_int_arr_j = [x, y];
+        self.var_byte_e = 1;
+    }
+
+    /// `h.b(j, int)` (h.java:2024) — the op65 level growth: +1 levels (all seven
+    /// attributes + the class bonus + max/rate re-derivation — current health/
+    /// fatigue are NOT refilled — + `h.f`) until `level >= n`.
+    pub fn grow_level(&mut self, n: i32, tables: &Tables) {
+        while i32::from(self.var_byte_o) < n {
+            self.var_byte_o += 1;
+            self.var_short_s += 1;
+            self.var_short_t += 1;
+            self.var_short_u += 1;
+            self.var_short_v += 1;
+            self.var_short_w += 1;
+            self.var_short_x += 1;
+            self.var_short_y += 1;
+            self.level_up_class_bonus();
+            self.recompute();
+            self.class_progression(tables);
+        }
+    }
+
+    /// `h.void_a(j)` (h.java:89, the actor part) — the player re-init on level
+    /// entry via the spawner's slot-0 reuse: clear the samples/dead/facing/
+    /// text/anim/walk/DoT state, re-derive health/fatigue to full, `h.f` + `h.e`.
+    /// (The array-wide `var_j_a = null` sweep is the world's job.)
+    pub fn player_reset(&mut self, tables: &Tables) {
+        self.var_byte_arr_a = [0, 0];
+        self.var_byte_l = -1;
+        self.var_byte_m = -1;
+        self.var_byte_n = -1;
+        self.var_byte_q = 0;
+        self.var_byte_g = -1;
+        self.var_j_a = -1;
+        self.var_short_i = 0;
+        self.floating_text = None;
+        self.q_field = 0;
+        self.var_int_c = 0xFF_0000;
+        self.var_byte_e = 0;
+        self.var_int_arr_j = [-1, -1];
+        self.var_short_k = 0;
+        self.var_short_l = 0;
+        self.var_j_b = -1;
+        self.recompute_to_full();
+        self.class_progression(tables);
+        crate::world::pick_primary(self);
+    }
+
+    /// `h.i(j)` (h.java:2078) — refresh the HUD status icon (`var_byte_v`)
+    /// from the active weapon/spell row's type: buffs/bolts/poison/cure map to
+    /// their icon keys; no row = the default -45.
+    pub fn refresh_icon(&mut self) {
+        let Some(w) = self.var_int_arr_l.as_ref() else {
+            self.var_byte_v = -45;
+            return;
+        };
+        self.var_byte_v = match w[2] {
+            0 | 5 => -48,
+            1 => -50,
+            2 => -46,
+            3 => {
+                if w[1] == 61618 {
+                    -44
+                } else if w[1] == 61619 {
+                    -43
+                } else {
+                    -50
+                }
+            }
+            4 => -47,
+            6 => -43,
+            _ => return,
+        };
+    }
+
+    /// `h.a(j, byte[])` (h.java:1433) — the FIRE/action dispatch: sample the
+    /// action overlay under the three corners (a valid value in `0..255` sets
+    /// `var_byte_n` and returns it — the caller pushes the action entry);
+    /// otherwise an unarmed non-creature swings (windup + anim 4), and on the
+    /// attack cooldown (`var_int_e >= var_short_m`) an armed/creature player
+    /// casts (`h.c(j, true)`), else re-acquires a target (`h.boolean_b`),
+    /// faces it (`h.b(j,j)`), and melees — a kill drops the target locks.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire_action(
+        &mut self,
+        idx: usize,
+        actors: &mut [Option<Actor>],
+        action: &[i8],
+        height: i32,
+        tables: &mut Tables,
+        effects: &mut Effects,
+        events: &mut Vec<WorldEvent>,
+        rng: &mut JavaRandom,
+    ) -> i8 {
+        self.var_byte_n = -1;
+        if action.is_empty() {
+            return self.var_byte_n; // Java: a null layer returns without the swing
+        }
+        {
+            let cells = [
+                i32::from(self.var_byte_arr_b[0]) * height + i32::from(self.var_byte_arr_b[1]),
+                i32::from(self.var_byte_arr_c[0]) * height + i32::from(self.var_byte_arr_c[1]),
+                i32::from(self.var_byte_arr_d[0]) * height + i32::from(self.var_byte_arr_d[1]),
+            ];
+            for &c in &cells {
+                if c < 0 || c >= action.len() as i32 {
+                    return -1;
+                }
+                let v = action[c as usize];
+                // Java: `byArray[i] < 0 || byArray[i] >= 255` skips (a byte is
+                // never >= 255; negatives = no action).
+                if v < 0 {
+                    continue;
+                }
+                self.var_byte_n = v;
+                return v;
+            }
+        }
+        if self.var_byte_t == 0 && self.var_int_arr_l.is_none() {
+            self.var_short_a = 500;
+            self.var_byte_e = 4;
+        }
+        if self.var_int_e >= i32::from(self.var_short_m) {
+            self.var_int_e = 0;
+            if self.var_int_arr_l.is_some() || self.var_byte_t == 1 {
+                self.cast(idx, actors, effects, tables, rng, true, events);
+            } else {
+                self.attack_ai(actors);
+                if self.var_j_a != -1 {
+                    let tgt = self.var_j_a as usize;
+                    debug_assert!(
+                        tgt < actors.len() && actors[tgt].is_some(),
+                        "fire target must be a live actor in the array"
+                    );
+                    let target_snapshot = actors[tgt].as_ref().unwrap().clone();
+                    self.face_toward(&target_snapshot);
+                    let mut target = actors[tgt].take().unwrap();
+                    let (died, _) = crate::combat::melee_attack(
+                        self,
+                        idx,
+                        &mut target,
+                        actors,
+                        true,
+                        tables,
+                        events,
+                        rng,
+                    );
+                    actors[tgt] = Some(target);
+                    if died {
+                        self.var_j_a = -1;
+                        self.var_j_b = -1;
+                        self.var_byte_e = 0;
+                    }
+                }
+            }
+        }
+        -1
+    }
+
+    /// `h.a(j, byte[], byte[])` (h.java:323) — sample the enter (`arr_j`) and
+    /// leave (`arr_k`) overlay layers under the actor's three corner cells:
+    /// the first cell with a value not in {0, -1} wins; sets `var_byte_l`
+    /// (enter sample) + `var_byte_m` (leave sample) and returns the enter value
+    /// (-1 = none). `height` is the column stride (`b.var_byte_g`).
+    pub fn sample_overlay(&mut self, enter: &[i8], leave: &[i8], height: i32) -> i8 {
+        self.var_byte_l = -1;
+        self.var_byte_m = -1;
+        let cells = [
+            i32::from(self.var_byte_arr_b[0]) * height + i32::from(self.var_byte_arr_b[1]),
+            i32::from(self.var_byte_arr_c[0]) * height + i32::from(self.var_byte_arr_c[1]),
+            i32::from(self.var_byte_arr_d[0]) * height + i32::from(self.var_byte_arr_d[1]),
+        ];
+        for &c in &cells {
+            if c < 0 || c >= enter.len() as i32 {
+                return -1;
+            }
+            let v = enter[c as usize];
+            if v == 0 || v == -1 {
+                continue;
+            }
+            self.var_byte_l = v;
+            self.var_byte_m = leave[c as usize];
+            return v;
+        }
+        -1
+    }
     ///
     /// **Ported subset (the rest of `h.a` is deferred):** timers, the animation
     /// advance gate, the move-to-target step (`var_int_arr_j` → `world::apply_delta`
@@ -1064,9 +1729,10 @@ impl Actor {
         l: i64,
         bl: bool,
         model: Option<&mut Anim>,
-        tables: &Tables,
+        tables: &mut Tables,
         effects: &mut Effects,
         map: Option<&crate::world::MapRef>,
+        events: &mut Vec<WorldEvent>,
     ) {
         // Pull self out of the array so the cross-actor branches (DoT dealer,
         // corpse removal, and the NPC AI) can borrow other slots freely,
@@ -1075,7 +1741,7 @@ impl Actor {
         let Some(mut me) = actors[idx].take() else {
             return;
         };
-        let keep = me.tick_inner(idx, actors, rng, l, bl, model, tables, effects, map);
+        let keep = me.tick_inner(idx, actors, rng, l, bl, model, tables, effects, map, events);
         if keep {
             actors[idx] = Some(me);
         }
@@ -1094,9 +1760,10 @@ impl Actor {
         l: i64,
         bl: bool,
         model: Option<&mut Anim>,
-        tables: &Tables,
+        tables: &mut Tables,
         effects: &mut Effects,
         map: Option<&crate::world::MapRef>,
+        events: &mut Vec<WorldEvent>,
     ) -> bool {
         self.var_short_b = (i64::from(self.var_short_b) + l) as i16;
         self.var_int_a = (i64::from(self.var_int_a) + l) as i32;
@@ -1173,16 +1840,20 @@ impl Actor {
                         "DoT dealer must be a live, non-self actor in the array"
                     );
                     let dealer_idx = self.var_j_b as usize;
-                    let dealer = actors[dealer_idx].clone().unwrap();
+                    // Take the dealer out so a kill's death branch can mutate it
+                    // (the swing-timer reset + XP), mirroring Java's object ref.
+                    let mut dealer = actors[dealer_idx].take().unwrap();
                     // h.a(var_byte_x, j2, var_j_b, false, true).
-                    let (died, _) = crate::combat::dot_damage(
+                    let _ = crate::combat::dot_damage(
                         i32::from(self.var_byte_x),
                         self,
-                        &dealer,
+                        &mut dealer,
                         dealer_idx,
+                        tables,
+                        events,
                         rng,
                     );
-                    debug_assert!(!died, "DoT death branch (XP/anim/sound) is out of scope");
+                    actors[dealer_idx] = Some(dealer);
                 }
             } else if self.var_byte_w == -47 {
                 self.var_byte_w = -1;
@@ -1244,7 +1915,7 @@ impl Actor {
                     let died = if self.var_byte_c != 1
                         && (self.var_int_arr_l.is_some() || self.var_byte_t == 1)
                     {
-                        self.cast(idx, actors, effects, tables, rng, false);
+                        self.cast(idx, actors, effects, tables, rng, false, events);
                         if self.var_byte_y == 3 {
                             self.var_int_arr_l = None;
                             self.f_field >>= 1;
@@ -1258,8 +1929,16 @@ impl Actor {
                         false
                     } else {
                         let mut target = actors[tgt].take().unwrap();
-                        let (died, _) =
-                            crate::combat::melee_attack(self, idx, &mut target, actors, true, rng);
+                        let (died, _) = crate::combat::melee_attack(
+                            self,
+                            idx,
+                            &mut target,
+                            actors,
+                            true,
+                            tables,
+                            events,
+                            rng,
+                        );
                         actors[tgt] = Some(target);
                         died
                     };
@@ -1405,20 +2084,24 @@ impl Actor {
     /// row (`bl` gates on insufficient fatigue; the tick calls with `bl = false`,
     /// so fatigue can go **negative** — faithful) and dispatches on the row's
     /// type (`[2]`): `0`/`1`/`5` = timed L/N/H self-buffs (G duration, status
-    /// icon, re-attached kind-9 effect); `2` = summon (out of scope — needs the
-    /// `b` actor spawner) falling through into `4` = AoE poison
-    /// ([`crate::combat::apply_poison`] on every enemy within `[14]`); `6` =
-    /// cure own poison; `3` = by `[1]`: 61618 AoE direct damage
+    /// icon, re-attached kind-9 effect); `2` = summon (replace the old summon,
+    /// spawn a scamp at the caster via the `b` spawner — emitted as
+    /// [`WorldEvent`]s, deferral-safe: the summon is same-faction so the
+    /// fall-through AoE skips it either way) falling through into `4` = AoE
+    /// poison ([`crate::combat::apply_poison`] on every enemy within `[14]`);
+    /// `6` = cure own poison; `3` = by `[1]`: 61618 AoE direct damage
     /// ([`crate::combat::apply_spell_damage`]), 61619 self-heal, else a kind-0
     /// projectile in the facing direction. Ends with the `h.f` recompute.
-    fn cast(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn cast(
         &mut self,
         idx: usize,
         actors: &mut [Option<Actor>],
         effects: &mut Effects,
-        tables: &Tables,
+        tables: &mut Tables,
         rng: &mut JavaRandom,
         bl: bool,
+        events: &mut Vec<WorldEvent>,
     ) {
         if self.var_byte_t == 1 {
             if self.var_byte_c == 1 {
@@ -1477,14 +2160,26 @@ impl Actor {
                 self.var_byte_h = effects.spawn_actor(9, 0, self, 5000) as i8;
             }
             2 => {
-                // Summon (`b.var_b_a.a("/oh_scamp.cml", …)` + `var_j_c`/`var_j_d`
-                // wiring) needs the b-layer actor spawner — out of scope until
-                // the main loop. Java FALLS THROUGH into the type-4 AoE after
-                // summoning, so a faithful summoner would run aoe_poison here.
-                debug_assert!(false, "summon cast (weapon type 2) is out of scope");
+                // The summon (h.c:1524): replace the previous summon (`b.a(slot)`
+                // on `var_j_c.var_byte_c - 1`), spawn a scamp at the caster's
+                // position from its own spawn row (`b.var_b_a.a("/oh_scamp.cml",
+                // pos, var_int_arr_o)`), link master<->summon, clear its loot
+                // flag (`h.b(j,false)` — done by the world's Summon handler) —
+                // then FALL THROUGH into the type-4 AoE (no break in Java).
+                if self.var_j_c != -1 {
+                    // Java reads the old summon's var_byte_c - 1; our link
+                    // already stores the slot.
+                    events.push(WorldEvent::RemoveActor(self.var_j_c as usize));
+                }
+                events.push(WorldEvent::Summon {
+                    caster: idx,
+                    x: self.var_int_arr_b[0],
+                    y: self.var_int_arr_b[1],
+                });
+                self.aoe_poison(idx, actors, effects, n, w[6], w[14], tables, events, rng);
             }
             4 => {
-                self.aoe_poison(idx, actors, effects, n, w[6], w[14], rng);
+                self.aoe_poison(idx, actors, effects, n, w[6], w[14], tables, events, rng);
             }
             6 => {
                 effects.spawn_actor(8, 0, self, 0);
@@ -1516,6 +2211,8 @@ impl Actor {
                                 actors,
                                 n,
                                 effects,
+                                tables,
+                                events,
                                 rng,
                             );
                             actors[i] = Some(victim);
@@ -1546,10 +2243,13 @@ impl Actor {
         n: i32,
         duration: i32,
         range: i32,
+        tables: &mut Tables,
+        events: &mut Vec<WorldEvent>,
         rng: &mut JavaRandom,
     ) {
-        for slot in actors.iter_mut() {
-            let hit = match slot {
+        #[allow(clippy::needless_range_loop)]
+        for slot_idx in 0..actors.len() {
+            let hit = match &actors[slot_idx] {
                 // Self is taken out of the array (the `== j2` skip).
                 Some(a) => {
                     a.var_byte_r != self.var_byte_r
@@ -1559,9 +2259,19 @@ impl Actor {
                 None => false,
             };
             if hit {
-                let mut victim = slot.take().unwrap();
-                crate::combat::apply_poison(self, idx, &mut victim, n, duration, effects, rng);
-                *slot = Some(victim);
+                let mut victim = actors[slot_idx].take().unwrap();
+                crate::combat::apply_poison(
+                    self,
+                    idx,
+                    &mut victim,
+                    n,
+                    duration,
+                    effects,
+                    tables,
+                    events,
+                    rng,
+                );
+                actors[slot_idx] = Some(victim);
             }
         }
     }
@@ -1670,7 +2380,18 @@ mod tests {
     fn tick1(a: &mut Actor, l: i64, model: Option<&mut Anim>, t: &Tables, fx: &mut Effects) {
         let mut arr = vec![Some(std::mem::take(a))];
         let mut rng = JavaRandom::new(0);
-        Actor::tick(0, &mut arr, &mut rng, l, false, model, t, fx, None);
+        Actor::tick(
+            0,
+            &mut arr,
+            &mut rng,
+            l,
+            false,
+            model,
+            &mut t.clone(),
+            fx,
+            None,
+            &mut Vec::new(),
+        );
         *a = arr[0].take().expect("tick unexpectedly removed the actor");
     }
 
@@ -1885,9 +2606,10 @@ mod tests {
             200,
             false,
             None,
-            &tables,
+            &mut tables.clone(),
             &mut Effects::new(),
             None,
+            &mut Vec::new(),
         );
         let v = arr[1].as_ref().unwrap();
         assert!(v.var_short_q < before, "DoT should reduce HP");
@@ -1935,9 +2657,10 @@ mod tests {
             200,
             false,
             None,
-            &tables,
+            &mut tables.clone(),
             &mut Effects::new(),
             None,
+            &mut Vec::new(),
         );
         {
             let a = arr[1].as_ref().unwrap();
@@ -1961,9 +2684,10 @@ mod tests {
             200,
             false,
             None,
-            &tables,
+            &mut tables.clone(),
             &mut Effects::new(),
             None,
+            &mut Vec::new(),
         );
         let a = arr[1].as_ref().unwrap();
         assert_eq!(a.var_j_a, 2, "target locked to slot 2");
@@ -2009,7 +2733,16 @@ mod tests {
         let mut rng = JavaRandom::new(1);
         let mut fx = Effects::new();
         Actor::tick(
-            1, &mut arr, &mut rng, 200, false, None, &tables, &mut fx, None,
+            1,
+            &mut arr,
+            &mut rng,
+            200,
+            false,
+            None,
+            &mut tables.clone(),
+            &mut fx,
+            None,
+            &mut Vec::new(),
         );
         // Effect [+0] = 0xFFFFF000 | var_byte_c << 8 | 12 (kind 11 remapped by dir 1).
         assert_eq!(
@@ -2049,7 +2782,16 @@ mod tests {
         let mut arr = vec![None, Some(caster), Some(enemy)];
         let mut fx = Effects::new();
         Actor::tick(
-            1, &mut arr, &mut rng, 200, false, None, &tables, &mut fx, None,
+            1,
+            &mut arr,
+            &mut rng,
+            200,
+            false,
+            None,
+            &mut tables.clone(),
+            &mut fx,
+            None,
+            &mut Vec::new(),
         );
         let a = arr[1].as_ref().unwrap();
         assert_eq!(
@@ -2087,9 +2829,10 @@ mod tests {
             60,
             false,
             None,
-            &tables,
+            &mut tables.clone(),
             &mut Effects::new(),
             None,
+            &mut Vec::new(),
         );
         assert_eq!(arr[1].as_ref().unwrap().var_short_i, 300);
         // 300 >= 250: removed from the array.
@@ -2100,9 +2843,10 @@ mod tests {
             60,
             false,
             None,
-            &tables,
+            &mut tables.clone(),
             &mut Effects::new(),
             None,
+            &mut Vec::new(),
         );
         assert!(
             arr[1].is_none(),

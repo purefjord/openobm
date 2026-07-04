@@ -76,6 +76,9 @@ pub struct ScrProgram {
     pub sections: Vec<ScrSection>,
     /// Number of inline strings consumed by the sections (`var_int_d`).
     pub string_count: usize,
+    /// The inline-string pool contents (`var_java_lang_String_arr_a`, Latin-1),
+    /// indexed by the values stored in string-tagged row fields.
+    pub strings: Vec<String>,
     /// Global slot counter advanced by subtype-9 tag-20 records (`var_int_e`).
     pub global_e_count: usize,
 }
@@ -124,15 +127,22 @@ struct Loader {
     string_count: usize, // var_int_d
     global_e: usize,     // var_int_e
     sections: Vec<ScrSection>,
+    strings: Vec<String>, // var_java_lang_String_arr_a (Latin-1 contents)
 }
 
 impl Loader {
-    /// Consume an inline-string field: bump the string pool and return the index
+    /// Consume an inline-string field: capture its Latin-1 contents into the
+    /// string pool (`var_java_lang_String_arr_a[var_int_d]`) and return the index
     /// the original would store (`var_int_d++`).
-    fn take_string(&mut self) -> i32 {
+    fn take_string(&mut self, b: &[u8], start: usize, len: usize) -> Result<i32, ParseError> {
+        let bytes = b
+            .get(start..start.checked_add(len).ok_or(ParseError::Eof)?)
+            .ok_or(ParseError::Eof)?;
+        self.strings
+            .push(bytes.iter().map(|&c| c as char).collect());
         let id = self.string_count as i32;
         self.string_count += 1;
-        id
+        Ok(id)
     }
 }
 
@@ -164,7 +174,7 @@ impl Loader {
                     set(&mut row, tu, be16(b, n + 1)?)?;
                     n += 2;
                 } else {
-                    let s = self.take_string();
+                    let s = self.take_string(b, n + 2, usize::from(len_byte))?;
                     set(&mut row, tu, s)?;
                     n += usize::from(len_byte) + 1;
                 }
@@ -217,7 +227,7 @@ fn walk_e(ld: &mut Loader, b: &[u8], mut n: usize) -> Result<usize, ParseError> 
                 set(&mut row, 1, be16(b, n + 1)?)?;
                 n += 2;
             } else {
-                let s = ld.take_string();
+                let s = ld.take_string(b, n + 2, usize::from(len_byte))?;
                 set(&mut row, 1, s)?;
                 n += usize::from(len_byte) + 1;
             }
@@ -326,6 +336,7 @@ pub fn parse_scr(bytes: &[u8]) -> Result<ScrProgram, ParseError> {
         string_count: 0,
         global_e: 0,
         sections: Vec::new(),
+        strings: Vec::new(),
     };
     loop {
         let tag = at(bytes, n)?;
@@ -460,6 +471,7 @@ pub fn parse_scr(bytes: &[u8]) -> Result<ScrProgram, ParseError> {
         sections: ld.sections,
         string_count: ld.string_count,
         global_e_count: ld.global_e,
+        strings: ld.strings,
     })
 }
 

@@ -7,13 +7,17 @@
 //! preserved verbatim: `>>` binds *looser* than `+`, so `s + O + i >> 1` is
 //! `(s + O + i) >> 1` and `v + z + L >> 3` is `(v + z + L) >> 3`.
 //!
-//! **Scope:** the melee path on a *survivable* target. The **spell/cast** branch
-//! (`var_byte_c != 1 && (weapon != null || t == 1) && bl`) is handled by the
-//! caller *before* reaching `melee_attack` ([`Actor::cast`](crate::Actor) from
-//! the tick — `melee_attack` debug-asserts it is not invoked in that
-//! configuration); the **death** branch (`var_short_q <= 0` — XP/level-up,
-//! death animation `h.e`, sound, effects) remains out of scope.
+//! **Scope:** the melee path. The **spell/cast** branch (`var_byte_c != 1 &&
+//! (weapon != null || t == 1) && bl`) is handled by the caller *before* reaching
+//! `melee_attack` ([`Actor::cast`](crate::Actor) from the tick — `melee_attack`
+//! debug-asserts it is not invoked in that configuration). The **death** branch
+//! (`var_short_q <= 0`, h.a:1134) is ported: the attacker's swing-timer reset +
+//! XP award (`h.c`), one RNG draw (the original's death-sound path), the death
+//! pose (`var_byte_e = 6` + `h.e`), and the world-layer effects — the death
+//! trigger push (`e.void_a(var_byte_k)`) and the loot drop (`e.int_a()` roll +
+//! `b.a(item,false,tile)`) — emitted as [`WorldEvent`]s.
 
+use crate::actor::{Tables, WorldEvent};
 use crate::{Actor, JavaRandom};
 
 /// The resolved category of an attack (matches the oracle's outcome code).
@@ -78,12 +82,15 @@ pub fn nearest_target(actors: &[Option<Actor>], q: &Actor) -> Option<usize> {
 /// *pre-existing* `var_j_a` aggressor's position for the E-update (`h.a:1125`).
 /// Both the attacker's and the target's own slots may be `None` (taken out by
 /// the caller, as in [`Actor::tick`]); the attacker is then read from `attacker`.
+#[allow(clippy::too_many_arguments)]
 pub fn melee_attack(
-    attacker: &Actor,
+    attacker: &mut Actor,
     attacker_idx: usize,
     target: &mut Actor,
     actors: &[Option<Actor>],
     bl: bool,
+    tables: &mut Tables,
+    events: &mut Vec<WorldEvent>,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
     debug_assert!(
@@ -130,7 +137,18 @@ pub fn melee_attack(
     // h.a's `bl` (the damage-text prefix), and h.a's `bl2` (defense bypass) is the
     // literal `false`. So in melee, dodge/block/armor ALWAYS apply — even on crits.
     let _ = bl; // a(j,j,bool)'s own `bl` only gates the (out-of-scope) spell path.
-    apply_damage(n, target, attacker, attacker_idx, actors, crit, false, rng)
+    apply_damage(
+        n,
+        target,
+        attacker,
+        attacker_idx,
+        actors,
+        crit,
+        false,
+        tables,
+        events,
+        rng,
+    )
 }
 
 /// `h.a(int n, j j2, j j3, boolean bl, boolean bl2)` — apply `n` damage to `j2`
@@ -141,11 +159,13 @@ pub fn melee_attack(
 fn apply_damage(
     n: i32,
     target: &mut Actor,
-    attacker: &Actor,
+    attacker: &mut Actor,
     attacker_idx: usize,
     actors: &[Option<Actor>],
     bl: bool,
     bl2: bool,
+    tables: &mut Tables,
+    events: &mut Vec<WorldEvent>,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
     // 1096: an un-attackable target resolves to nothing (returns false).
@@ -221,10 +241,31 @@ fn apply_damage(
         });
         target.q_field = 0;
         target.var_byte_q = i8::from(target.var_short_q <= 0);
-        debug_assert!(
-            target.var_byte_q == 0,
-            "death branch (XP/animation/sound) is out of scope"
-        );
+        if target.var_byte_q == 1 {
+            // h.a:1134 — the death branch. The attacker (`j3`, non-null on every
+            // path here) resets its swing timer and takes the XP award (a no-op
+            // for non-players inside h.c); one RNG draw (the original's
+            // death-sound path); the death pose + `h.e` re-pick; then the
+            // world-layer effects as deferred events.
+            attacker.var_int_a = 0;
+            attacker.award_xp(target.var_byte_o.max(0) as usize, tables);
+            rng.next_int();
+            target.var_byte_e = 6;
+            crate::world::pick_primary(target);
+            if target.var_byte_k >= 0 {
+                events.push(WorldEvent::PushEntry(target.var_byte_k as u8));
+            }
+            if target.var_byte_s == 1 {
+                let item = crate::actor::loot_roll(tables, rng); // e.int_a()
+                if item != 0 {
+                    events.push(WorldEvent::DropLoot {
+                        item,
+                        x: i32::from(target.var_byte_arr_c[0]),
+                        y: i32::from(target.var_byte_arr_c[1]),
+                    });
+                }
+            }
+        }
         (target.var_byte_q == 1, CombatOutcome::Hit)
     } else {
         (false, CombatOutcome::Miss)
@@ -235,17 +276,29 @@ fn apply_damage(
 /// (at slot `dealer_idx`), **bypassing defense** (`bl2 = true`: no
 /// dodge/block/armor). This is the damage-over-time application (the
 /// `var_short_k` lap in [`crate::Actor::tick`]) and the direct hit of the
-/// (unported) poison applicator. `dealer` is read only for its `var_byte_t` (the
-/// extra RNG draw); the on-hit E-update is skipped under `bl2`. Survivable path
-/// only (the death branch is out of scope).
+/// poison applicator. `dealer` is read for its `var_byte_t` (the extra RNG
+/// draw) and mutated on a kill; the on-hit E-update is skipped under `bl2`.
 pub fn dot_damage(
     damage: i32,
     victim: &mut Actor,
-    dealer: &Actor,
+    dealer: &mut Actor,
     dealer_idx: usize,
+    tables: &mut Tables,
+    events: &mut Vec<WorldEvent>,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
-    apply_damage(damage, victim, dealer, dealer_idx, &[], false, true, rng)
+    apply_damage(
+        damage,
+        victim,
+        dealer,
+        dealer_idx,
+        &[],
+        false,
+        true,
+        tables,
+        events,
+        rng,
+    )
 }
 
 /// `h.a(j j2, j j3, int n, int n2)` — the poison applicator: `dealer` (at slot
@@ -254,13 +307,16 @@ pub fn dot_damage(
 /// the poison puff (`i.a(8, j3)`), and applies one immediate defense-bypassing
 /// hit. Called per-victim by the spell AoE (weapon type 4 / the type-2
 /// fallthrough) and by scripts.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_poison(
-    dealer: &Actor,
+    dealer: &mut Actor,
     dealer_idx: usize,
     victim: &mut Actor,
     damage: i32,
     duration: i32,
     effects: &mut crate::effects::Effects,
+    tables: &mut Tables,
+    events: &mut Vec<WorldEvent>,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
     victim.var_byte_x = damage as i8;
@@ -268,25 +324,39 @@ pub fn apply_poison(
     victim.var_j_b = dealer_idx as i32;
     victim.var_byte_w = -47;
     effects.spawn_actor(8, 0, victim, 0);
-    apply_damage(damage, victim, dealer, dealer_idx, &[], false, true, rng)
+    apply_damage(
+        damage,
+        victim,
+        dealer,
+        dealer_idx,
+        &[],
+        false,
+        true,
+        tables,
+        events,
+        rng,
+    )
 }
 
 /// `h.a(j j2, j j3, int n)` — direct spell damage: an impact effect
 /// (`i.a(10, j3)`) then `damage` applied **with** full defenses
 /// (dodge/block/armor; `bl2 = false`, so the non-player E-update runs — hence
 /// `actors`). Called per-victim by the spell AoE (weapon row `[1] == 61618`).
+#[allow(clippy::too_many_arguments)]
 pub fn apply_spell_damage(
-    dealer: &Actor,
+    dealer: &mut Actor,
     dealer_idx: usize,
     victim: &mut Actor,
     actors: &[Option<Actor>],
     damage: i32,
     effects: &mut crate::effects::Effects,
+    tables: &mut Tables,
+    events: &mut Vec<WorldEvent>,
     rng: &mut JavaRandom,
 ) -> (bool, CombatOutcome) {
     effects.spawn_actor(10, 0, victim, 0);
     apply_damage(
-        damage, victim, dealer, dealer_idx, actors, false, false, rng,
+        damage, victim, dealer, dealer_idx, actors, false, false, tables, events, rng,
     )
 }
 
@@ -299,7 +369,7 @@ mod tests {
     /// correctness is established by `oracle_match::combat_matches_oracle`.)
     #[test]
     fn survivable_melee_resolves() {
-        let attacker = Actor {
+        let mut attacker = Actor {
             var_byte_c: 0,
             var_byte_o: 5,
             var_short_s: 40,
@@ -319,9 +389,72 @@ mod tests {
                 ..Actor::default()
             };
             let mut rng = JavaRandom::new(seed);
-            let (died, _outcome) = melee_attack(&attacker, 0, &mut target, &[], true, &mut rng);
+            let mut tables = Tables::default();
+            let mut events = Vec::new();
+            let (died, _outcome) = melee_attack(
+                &mut attacker,
+                0,
+                &mut target,
+                &[],
+                true,
+                &mut tables,
+                &mut events,
+                &mut rng,
+            );
             assert!(!died);
+            assert!(events.is_empty());
             assert!(target.var_short_q <= 10_000);
         }
+    }
+
+    /// The death branch: a lethal hit sets the death pose, resets the attacker's
+    /// swing timer, draws the death-path RNG, and emits the trigger/loot events.
+    #[test]
+    fn death_branch_emits_world_events() {
+        let mut attacker = Actor {
+            var_byte_c: 1, // player: takes the XP award
+            var_byte_o: 1,
+            var_short_s: 200,
+            prog_d: 100,
+            var_int_a: 555,
+            ..Actor::default()
+        };
+        let mut tables = Tables::default();
+        // A subtype-10 loot list: row 1 = item 7, modulus 1 (always), count 2.
+        tables.insert(10, vec![vec![0; 4], vec![0, 7, 1, 2], vec![0; 4]]);
+        // Find a seed whose draws (swing, dodge, block) land a lethal hit.
+        'seed: for seed in 0..200i64 {
+            let mut target = Actor {
+                var_byte_c: 0,
+                var_short_q: 1,
+                var_byte_o: 3,
+                var_byte_k: 9, // death-trigger entry
+                var_byte_s: 1, // drops loot
+                ..Actor::default()
+            };
+            let mut rng = JavaRandom::new(seed);
+            let mut events = Vec::new();
+            let (died, outcome) = melee_attack(
+                &mut attacker,
+                0,
+                &mut target,
+                &[],
+                true,
+                &mut tables,
+                &mut events,
+                &mut rng,
+            );
+            if outcome != CombatOutcome::Hit {
+                continue 'seed;
+            }
+            assert!(died);
+            assert_eq!(target.var_byte_q, 1);
+            assert_eq!(target.var_byte_e, 6);
+            assert_eq!(attacker.var_int_a, 0);
+            assert_eq!(events[0], WorldEvent::PushEntry(9));
+            assert!(matches!(events[1], WorldEvent::DropLoot { item: 7, .. }));
+            return;
+        }
+        panic!("no seed produced a lethal hit");
     }
 }

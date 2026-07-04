@@ -110,7 +110,7 @@ fn recompute_tiles(a: &mut Actor) {
 }
 
 /// `h.e(j)` — choose `var_byte_arr_a` (the draw-order sample) among the corners.
-fn pick_primary(a: &mut Actor) {
+pub(crate) fn pick_primary(a: &mut Actor) {
     if a.var_byte_arr_d[0] > a.var_byte_arr_c[0] {
         a.var_byte_arr_a = a.var_byte_arr_d;
     } else if a.var_byte_arr_c[1] > a.var_byte_arr_d[1] || a.var_byte_arr_c[0] > a.var_byte_arr_b[0]
