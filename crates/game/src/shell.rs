@@ -13,9 +13,10 @@
 //! entry (op44 -> `b.e()`). Nothing on this path is seeded or modeled.
 //!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - firing a class / Help / About / Exit yields [`Leave`] — level load
-//!   (mode 6->15->0), the text-page *input* handling, and the exit dialog
-//!   (mode 19) land in later sub-slices;
+//! - firing a class / Help / About yields [`Leave`] — level load
+//!   (mode 6->15->0) and the text-page *input* handling land in later
+//!   sub-slices (the exit dialog, mode 19, IS ported: fire Exit -> confirm
+//!   -> NO back to the menu / YES -> `c()` = mode 12 terminal + destroyed);
 //! - `b()Z` (RecordStore has-save probe) is modeled as `false` — the pinned
 //!   wiped-RMS baseline (no "Continue" item); the save-capture slice lifts it;
 //! - rendering an unported paint mode is an error;
@@ -25,7 +26,8 @@
 use crate::asset::Assets;
 use crate::fb::Fb;
 use crate::paint::{
-    paint_loader, paint_menu_page, paint_startup, paint_text_page, SCREEN_H, SCREEN_W,
+    paint_exit_dialog, paint_loader, paint_menu_page, paint_startup, paint_text_page, SCREEN_H,
+    SCREEN_W,
 };
 use crate::text::TextMasks;
 use crate::vm::{GameVm, KEY_SENTINEL};
@@ -65,7 +67,7 @@ impl Action {
 pub enum Leave {
     /// class selected -> level load (mode 6 -> 15 -> gameplay)
     LoadLevel(String),
-    /// a menu item that opens an unported mode (Help/About/Exit dialog/…)
+    /// a menu item that opens an unported mode (Help/About/…)
     Mode(u8),
 }
 
@@ -75,6 +77,7 @@ pub enum Screen {
     Title,       // m=8 (key-gate set)
     MainMenu,    // m=3, k=0
     ClassSelect, // m=3, k=1
+    ExitDialog,  // m=19
 }
 
 pub struct Shell {
@@ -103,6 +106,7 @@ pub struct Shell {
     left_gameplay: bool,          // f:Z
     progress: i8,                 // r:B (loader bar; -1 outside b.c(int))
     pending_leave: Option<Leave>, // fenced boundary crossings
+    exited: bool,                 // notifyDestroyed() fired (b.c(), YES on exit)
 }
 
 impl Shell {
@@ -136,6 +140,7 @@ impl Shell {
             left_gameplay: false,
             progress: -1,
             pending_leave: None,
+            exited: false,
         };
         shell.loader("/startup.scr")?;
         Ok(shell)
@@ -328,26 +333,74 @@ impl Shell {
         self.latched = key;
     }
 
-    /// `b(J)` — consume the latched key: mode dispatch first, then the tail
-    /// feeds the script VM (`e.b(char)` — releases the title's op60 gate).
+    /// `b(J)` — consume the latched key, transcribing the real pre-dispatch
+    /// order: the accept filter (raw soft/menu keys {23,22,21,-104,-105},
+    /// digits, or a mapped game action), the `d:B`/`e:B` title-only shortcut,
+    /// the `c:B` swallow, THEN the mode dispatch, then the tail feeds the
+    /// script VM (`e.b(char)` — releases the title's op60 gate).
     fn input(&mut self) {
         let key = self.latched;
         if key == KEY_SENTINEL {
             return;
         }
-        let Some(action) = Action::from_key(key) else {
-            // filtered: not an accepted key (soft keys/digits out of slice)
+        let action = Action::from_key(key);
+        let accepted = matches!(key, 23 | 22 | 21 | -104 | -105)
+            || (48..=57).contains(&key)
+            || action.is_some();
+        if !accepted {
             self.latched = KEY_SENTINEL;
             return;
-        };
-        if self.mode == 3 {
-            self.menu_input(action);
+        }
+        // d:B/e:B (-104/-105): any-key on the title (straight to the tail,
+        // skipping the mode dispatch); swallowed everywhere else.
+        let straight_to_tail = matches!(key, -104 | -105);
+        if straight_to_tail && self.mode != 8 {
+            self.latched = KEY_SENTINEL;
+            return;
+        }
+        // c:B (23) is swallowed before the mode dispatch (p:B = 0; return).
+        if key == 23 {
+            self.latched = KEY_SENTINEL;
+            return;
+        }
+        if !straight_to_tail {
+            match self.mode {
+                3 => {
+                    if let Some(action) = action {
+                        self.menu_input(action);
+                    }
+                }
+                19 => {
+                    // exit dialog (input 3290): RAW key compares, not the
+                    // remap. a:B (22) = YES -> `c()`, falls to the tail;
+                    // b:B (21) = NO -> mode 3 + CONSUME (skips the VM tail);
+                    // anything else accepted goes straight to the tail.
+                    if key == 22 {
+                        self.exit_c();
+                    } else if key == 21 {
+                        self.set_mode(3);
+                        self.latched = KEY_SENTINEL;
+                        return;
+                    }
+                }
+                _ => {}
+            }
         }
         // TAIL: f.a == 0 pre-gameplay -> feed the VM; the cheat buffer
         // d(char) is out of slice. The gate consumes the key (a:I sentinel);
         // a tap releases (p:B) and clears the latch either way.
         self.vm.feed_key(key);
         self.latched = KEY_SENTINEL;
+    }
+
+    /// `b.c()` (javap 16071) — the YES/exit native: mode 12 (terminal — the
+    /// `a(byte)` setter latches there and `run()` exits its loop), repaint,
+    /// a 2s real-time sleep, then `MIDlet.notifyDestroyed()` (on FreeJ2ME:
+    /// `System.exit`). The destruction is modeled as [`Self::exited`]; mode 12
+    /// paints nothing, so the real LCD keeps the last frame until the JVM dies.
+    fn exit_c(&mut self) {
+        self.set_mode(12);
+        self.exited = true;
     }
 
     /// `b(J)` mode-3 dispatch: LEFT/RIGHT wrap the page cursor; FIRE dispatches
@@ -385,7 +438,7 @@ impl Shell {
         if item == self.lang.get(2) {
             self.page = 1; // New Game -> class select (k = 1)
         } else if item == self.lang.get(22) {
-            self.pending_leave = Some(Leave::Mode(19)); // Exit -> confirm dialog
+            self.set_mode(19); // Exit -> confirm dialog (input 2712: a((byte)19))
         } else if item == self.lang.get(456) {
             self.pending_leave = Some(Leave::Mode(9)); // Help text page
         } else if item == self.lang.get(6) {
@@ -406,12 +459,19 @@ impl Shell {
             (8, _) if self.vm.key_gate => Some(Screen::Title),
             (3, 0) => Some(Screen::MainMenu),
             (3, 1) => Some(Screen::ClassSelect),
+            (19, _) => Some(Screen::ExitDialog),
             _ => None,
         }
     }
 
     pub fn mode(&self) -> i8 {
         self.mode
+    }
+
+    /// `notifyDestroyed()` fired (YES on the exit dialog): the MIDlet is dead;
+    /// the real `run()` loop has exited (mode 12) and the JVM is going down.
+    pub fn exited(&self) -> bool {
+        self.exited
     }
 
     pub fn blink_on(&self) -> bool {
@@ -471,6 +531,11 @@ impl Shell {
                     &mut self.scroll,
                 );
             }
+            19 => paint_exit_dialog(&mut fb, &self.masks),
+            12 => anyhow::bail!(
+                "paint mode 12 is terminal: the real paint draws NOTHING (the \
+                 LCD keeps the last frame while c() destroys the MIDlet)"
+            ),
             other => anyhow::bail!("paint mode {other} not ported (out of slice)"),
         }
         Ok(fb)

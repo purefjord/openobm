@@ -159,6 +159,44 @@ pub fn paint_menu_page(
     Ok(())
 }
 
+/// Paint the exit-confirm dialog (`b.paint` case 19, offset 5045): black fill,
+/// then three white LARGE-BOLD strings, with two faithful quirks from the
+/// bytecode (see `docs/loop-decode-notes.md` "Exit dialog"):
+/// - the prompt (lang 475) x-centers by the width of **lang 451**
+///   ("Load Saved Game?") — a copy-paste bug in the original, kept;
+/// - the "YES" label's x measures the PRE-uppercase "Yes" (lang 426), then
+///   draws the uppercased string.
+///
+/// The NO/YES soft-key row lands at `y = 345 - fontH - 2 = 329` — entirely
+/// inside the clipped logical band (the LCD shows rows < 320), so the visible
+/// dialog is just the centered prompt. Painted faithfully regardless.
+pub fn paint_exit_dialog(fb: &mut Fb, masks: &TextMasks) {
+    fb.fill(0x00_00_00);
+    let fh = masks.metrics(GameFont::LargeBold).midp_height;
+    let w451 = masks.string_width(GameFont::LargeBold, "Load Saved Game?");
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        "Exit...Are you sure?", // lang 475
+        SCREEN_W / 2 - w451 / 2,
+        SCREEN_H / 2 - fh / 2,
+        0xFF_FF_FF,
+    );
+    let soft_y = SCREEN_H - fh - 2;
+    // lang 427 "No".toUpperCase() at x=2; lang 426 "Yes".toUpperCase() right-
+    // aligned by the pre-uppercase width
+    masks.stamp(fb, GameFont::LargeBold, "NO", 2, soft_y, 0xFF_FF_FF);
+    let w_yes = masks.string_width(GameFont::LargeBold, "Yes");
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        "YES",
+        SCREEN_W - w_yes - 2,
+        soft_y,
+        0xFF_FF_FF,
+    );
+}
+
 /// Paint a text page (`b.paint` cases 4/9/10/21, offset 2401): word-wrapped
 /// paragraph lines from `h(String)` at x=2, pitched `c:Font.height + 1` (11px),
 /// starting at `y = 3 + g:S`. Inverted pages ({4,21}, plus 23/17 out of slice)

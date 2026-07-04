@@ -17,7 +17,7 @@
 use game::fb::Fb;
 use game::paint::LCD_H;
 use game::script::{parse, Cmd};
-use game::shell::{Leave, Screen, Shell};
+use game::shell::{Screen, Shell};
 use game::text::TextMasks;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -179,6 +179,85 @@ fn left_wraps_to_last_item() {
     }
     assert_eq!(s.screen(), Some(Screen::MainMenu));
     tap(&mut s, 52); // left wraps to last item = "Exit"
-    tap(&mut s, 53); // fire Exit -> confirm dialog (fenced boundary)
-    assert_eq!(s.take_leave(), Some(Leave::Mode(19)));
+    tap(&mut s, 53); // fire Exit -> the m=19 confirm dialog (ported)
+    assert_eq!(s.take_leave(), None);
+    assert_eq!(s.screen(), Some(Screen::ExitDialog));
+    // NO (b:B = 21): back to the main menu, cursor STILL on Exit (e:[B
+    // persists across the mode round-trip) — fire re-opens the dialog.
+    tap(&mut s, 21);
+    assert_eq!(s.screen(), Some(Screen::MainMenu));
+    tap(&mut s, 53);
+    assert_eq!(s.screen(), Some(Screen::ExitDialog));
+}
+
+/// The exit-dialog choreography at parity (mirrors `oracle/to_exit.txt` ->
+/// `artifacts/exit`): LEFT from New Game wraps the carousel to Exit, fire
+/// opens the m=19 confirm (static -> gated), NO returns to the menu with the
+/// cursor still on Exit, fire re-opens byte-identically. The oracle run
+/// verified e1 == e3 and e2 == e4 (hash-equal), so the NO-return and re-entry
+/// shots gate against the same two fixtures.
+#[test]
+fn exit_dialog_at_parity() {
+    let script = "\
+        wait 9600\n\
+        tap fire\n\
+        wait 1000\n\
+        tap left\n\
+        wait 200\n\
+        shot menu_exit.png\n\
+        tap fire\n\
+        wait 200\n\
+        shot dialog.png\n\
+        tap 21\n\
+        wait 200\n\
+        shot menu_after_no.png\n\
+        tap fire\n\
+        wait 200\n\
+        shot dialog_again.png\n";
+    let shots = run_script(script);
+    assert_parity(
+        &shots["menu_exit.png"],
+        "main_menu_exit.png",
+        "driven_menu_exit",
+    );
+    assert_parity(
+        &shots["dialog.png"],
+        "exit_dialog.png",
+        "driven_exit_dialog",
+    );
+    assert_parity(
+        &shots["menu_after_no.png"],
+        "main_menu_exit.png",
+        "driven_menu_after_no",
+    );
+    assert_parity(
+        &shots["dialog_again.png"],
+        "exit_dialog.png",
+        "driven_exit_dialog_again",
+    );
+}
+
+/// YES (a:B = 22) on the dialog runs `b.c()`: mode 12 + notifyDestroyed. The
+/// oracle run pinned the behavior (modelog: m=19 -> m=12, then "MIDlet sent
+/// Destroyed Notification" and the JVM exits — `artifacts/exit/exitmodes.txt`).
+/// Mode 12 is terminal: `a(byte)` latches, `run()` exits, nothing paints.
+#[test]
+fn exit_yes_destroys_the_midlet() {
+    let mut s = shell_at_title();
+    tap(&mut s, 53);
+    for _ in 0..20 {
+        s.tick(50);
+    }
+    tap(&mut s, 52); // left wraps to Exit
+    tap(&mut s, 53); // fire -> dialog
+    assert_eq!(s.screen(), Some(Screen::ExitDialog));
+    assert!(!s.exited());
+    tap(&mut s, 22); // YES
+    assert!(s.exited());
+    assert_eq!(s.mode(), 12);
+    // mode 12 paints nothing (the real LCD keeps the last frame) — rendering
+    // it is a loud error, and the mode latches against any further input.
+    assert!(s.render().is_err());
+    tap(&mut s, 21);
+    assert_eq!(s.mode(), 12);
 }

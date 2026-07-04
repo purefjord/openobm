@@ -90,6 +90,7 @@ from FreeJ2ME's own `drawString` path as whole-string ink masks
 | class select (`m=3 k=1`) | `/main.png` + green header + carousel class name + clipped "BACK", cursors 0/1/2 (Monk/Nightblade/Barbarian — the real CLASS-TABLE order) | byte-identical |
 | driven flow | one input script from COLD BOOT (loader → logos → legal → title → key → script chain → menu → class select) through the ported loader + VM + `b(J)` mode machine, each `shot` diffed | byte-identical |
 | legal word-wrap | `h(String)` + the small-bold width math vs the 7 lines the real game drew (oracle textlog) | exact |
+| exit dialog (`m=19`) | fire Exit → confirm (incl. the original's lang-451 mis-centering quirk) → NO back to the menu with the cursor held on Exit → re-open; YES → `c()` mode-12 terminal + destroyed (behavior pinned by the oracle modelog) | byte-identical |
 
 Static, input-settled screens only. Animated screens (the boot splash, the
 ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
