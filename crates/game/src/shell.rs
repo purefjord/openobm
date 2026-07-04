@@ -36,6 +36,7 @@
 
 use crate::asset::Assets;
 use crate::fb::Fb;
+use crate::fmenu::{FMenu, MenuItem};
 use crate::paint::{
     paint_exit_dialog, paint_loader, paint_menu_page, paint_startup, paint_text_page, SCREEN_H,
     SCREEN_W,
@@ -100,6 +101,7 @@ pub enum Screen {
     IntroText,    // m=10 (the level intro page, auto-scrolls into mode 0)
     Gameplay,     // m=0
     Death,        // m=11 (the player-death "Continue?" screen)
+    ActionMenu,   // m=2 (the f.java Attack/Armor/Items/Stats menu)
 }
 
 pub struct Shell {
@@ -148,6 +150,14 @@ pub struct Shell {
     /// The key bindings `g:[B` (quick-health, quick-magika, toggle-weapon;
     /// defaults `f:[B = {55, 57, 51}` — keys 7/9/3).
     bindings: [i32; 3],
+    /// `a:Lf;` — the f.java in-game menu system (the mode-2 action menu).
+    pub fmenu: FMenu,
+    /// `b.var_c_a` / `var_c_b` — the active-weapon / active-spell menu nodes
+    /// (rebuilt per `n()`; the original keeps stale refs to the PREVIOUS
+    /// graph, whose re-marking is unobservable — modeled as a per-build
+    /// reset, see `n_action_menu`).
+    active_weapon_item: Option<usize>,
+    active_spell_item: Option<usize>,
 }
 
 impl Shell {
@@ -156,6 +166,11 @@ impl Shell {
     /// extracted-jar resource root; `masks` the oracle text fixture.
     pub fn boot(assets_dir: impl Into<PathBuf>, masks: TextMasks) -> anyhow::Result<Self> {
         let assets_dir = assets_dir.into();
+        // a:Lf; = new f(ctorArg3, this) — the menu model loads at boot.
+        let menu_cml = {
+            let bytes = std::fs::read(assets_dir.join("oh_menu.cml"))?;
+            parse_cml(&bytes)?
+        };
         let mut shell = Self {
             assets: Assets::new(&assets_dir),
             masks,
@@ -195,6 +210,9 @@ impl Shell {
             exited: false,
             pw_acc: 0,
             bindings: [55, 57, 51],
+            fmenu: FMenu::new(menu_cml),
+            active_weapon_item: None,
+            active_spell_item: None,
         };
         shell.loader("/startup.scr")?;
         Ok(shell)
@@ -672,8 +690,11 @@ impl Shell {
         if self.mode == 12 {
             return;
         }
-        // f.a:B == 1 (the in-game f.java menus) is out of slice.
-        if !matches!(self.mode, 3 | 10 | 9 | 13) {
+        // run() step 4: f.a:B == 1 -> the menu tick (marquee) REPLACES the
+        // effects + VM tick — the world freezes under the open menu.
+        if self.fmenu.open {
+            self.fmenu.tick(dt_ms);
+        } else if !matches!(self.mode, 3 | 10 | 9 | 13) {
             // i.a(l): the effect pool (projectile hits share the combat RNG).
             // The /oh_magic.cml model is the original `i.<clinit>` load.
             let mut events = Vec::new();
@@ -1032,6 +1053,28 @@ impl Shell {
                     }
                     self.released = true; // p:B = 1 (3007)
                 }
+                2 => {
+                    // the action menu (input 1429): i5 is the FULL remap;
+                    // b:B (21) pops (`f.a()Z`) — a failed pop closes the
+                    // menu + mode 0; a successful one consumes the latch.
+                    // a:B (22) is swallowed. Everything else feeds
+                    // `f.a(char)` and its activation callback `b.a(c)`.
+                    let i5r = self.remap(key);
+                    if key == 21 {
+                        if !self.fmenu.back() {
+                            self.fmenu.open = false;
+                            self.set_mode(0);
+                        } else {
+                            self.latched = KEY_SENTINEL;
+                        }
+                    } else if key != 22 && self.fmenu.open {
+                        let items_page = self.lang.get(27).to_string();
+                        if let Some(node) = self.fmenu.input(i5r, &items_page) {
+                            self.activate_item(node);
+                        }
+                    }
+                    self.released = true; // p:B = 1 (1510)
+                }
                 _ => {}
             }
         }
@@ -1042,9 +1085,12 @@ impl Shell {
             return;
         }
         // f.a == 0 -> feed the VM (mode-0 keys arrive remapped, arming
-        // the op14 handlers) and the dialogue input `d(char)` (scroll/dismiss).
-        self.vm.feed_key(i5);
-        self.dialogue_input(i5);
+        // the op14 handlers) and the dialogue input `d(char)` (scroll/
+        // dismiss); an OPEN f menu swallows both.
+        if !self.fmenu.open {
+            self.vm.feed_key(i5);
+            self.dialogue_input(i5);
+        }
         if self.released {
             self.latched = KEY_SENTINEL;
             self.released = false;
@@ -1077,12 +1123,15 @@ impl Shell {
     /// `b(J)` case 0 (input 1804) — the gameplay key dispatch. Returns `true`
     /// when the key was consumed before the tail.
     fn gameplay_input(&mut self, raw: i32, i5: i32, dt_ms: i32) -> bool {
-        // a:B (22): the in-game action menu (`n()` + mode 2) — out of slice.
+        // a:B (22): the in-game action menu — n() + mode 2, latch consumed
+        // (b(J) 356-392; the p:B flag is left alone — the tail's sentinel
+        // check ends the dispatch).
         if raw == 22 {
             if self.world.actors[0].is_none() || !self.world.hud_enabled {
                 return false;
             }
-            self.pending_leave = Some(Leave::GameKey(22));
+            self.n_action_menu();
+            self.set_mode(2);
             self.latched = KEY_SENTINEL;
             self.released = false;
             return true;
@@ -1379,6 +1428,292 @@ impl Shell {
         false
     }
 
+    /// `e.int_a(String)` — reverse-resolve a display name to its name ref:
+    /// an exact match in the CURRENT script's string pool wins (the index),
+    /// else the BASE-lang reverse lookup (`0xF000 | id`), else `None`.
+    fn name_ref(&self, name: &str) -> Option<i32> {
+        if let Some(i) = self.vm.pool_reverse(name) {
+            return Some(i);
+        }
+        self.lang.reverse(name).map(|id| 0xF000 | i32::from(id))
+    }
+
+    /// `e.int_arr_a(String)` — resolve a display name to its stat row: the
+    /// table scan order is weapons (4), consumables (2), armor (1), classes
+    /// (5), spells (8); unwritten rows (id 0) are the Java nulls, skipped.
+    fn row_by_name(&self, name: &str) -> Option<Vec<i32>> {
+        let n = self.name_ref(name)?;
+        for &subtype in &[4u8, 2, 1, 5, 8] {
+            for row in self.vm.tables.rows(subtype) {
+                if row.len() > 1 && row[0] != 0 && row[1] == n {
+                    return Some(row.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// `b.n()` (javap 9498) — build the mode-2 action menu from the live
+    /// player: the Attack page (weapons with the lang-305/400 prefix + the
+    /// class spell list with lang-304), the Armor page (eight lang-28..35
+    /// slot sub-pages), the Items page (kind-2 inventory), and the
+    /// Character Stats rows; then open the f menu (tabs {4,1,2,3,18},
+    /// status null) and dirty the base-map cache (the original bakes the
+    /// menu background into b's offscreen).
+    fn n_action_menu(&mut self) {
+        let g = |id: u16| self.lang.get(id).to_string();
+        let mut items: Vec<MenuItem> = Vec::new();
+        let add = |items: &mut Vec<MenuItem>, item: MenuItem| -> usize {
+            items.push(item);
+            items.len() - 1
+        };
+        let attack = add(&mut items, MenuItem::new(g(25), None, false));
+        let armor = add(&mut items, MenuItem::new(g(26), None, false));
+        let items_pg = add(&mut items, MenuItem::new(g(27), None, false));
+        let stats = add(&mut items, MenuItem::new(g(394), None, false));
+        let mut slot_pages = [0usize; 8];
+        for (i, &id) in [28u16, 29, 30, 31, 32, 33, 34, 35].iter().enumerate() {
+            let pg = add(&mut items, MenuItem::new(g(id), None, false));
+            items[pg].parent = Some(armor);
+            items[armor].children.push(pg);
+            slot_pages[i] = pg;
+        }
+        let p = self.world.actors[0].as_ref().expect("n() needs the player");
+        // The stats rows (labels get ": " appended; attribute values ×3; the
+        // 42/40 speed/luck values are hardcoded in the original).
+        let class_name = match p.var_byte_f {
+            4 => g(12),
+            3 => g(11),
+            8 => g(16),
+            5 => g(13),
+            1 => g(9),
+            2 => g(10),
+            7 => g(15),
+            6 => g(14),
+            _ => String::new(),
+        };
+        let lvl = i32::from(p.var_byte_o);
+        let xp_next = if (lvl as usize) < formats::actor::XP_THRESHOLD.len() - 1 {
+            (formats::actor::XP_THRESHOLD[(lvl + 1) as usize] - p.var_int_b).to_string()
+        } else {
+            "0".into()
+        };
+        let rows: Vec<Option<String>> = vec![
+            Some(format!("{}: ", g(443))),
+            Some(class_name),
+            Some(format!("{}: ", g(17))),
+            Some(lvl.to_string()),
+            Some(format!("{}: ", g(441))),
+            Some(p.var_int_b.to_string()),
+            Some(format!("{}: ", g(442))),
+            Some(xp_next),
+            Some(format!("{}: ", g(415))),
+            Some((i32::from(p.var_short_s) * 3).to_string()),
+            Some(format!("{}: ", g(416))),
+            Some((i32::from(p.var_short_t) * 3).to_string()),
+            Some(format!("{}: ", g(417))),
+            Some((i32::from(p.var_short_u) * 3).to_string()),
+            Some(format!("{}: ", g(418))),
+            Some((i32::from(p.var_short_v) * 3).to_string()),
+            Some(format!("{}: ", g(419))),
+            Some((i32::from(p.var_short_x) * 3).to_string()),
+            Some(format!("{}: ", g(420))),
+            Some((i32::from(p.var_short_y) * 3).to_string()),
+            Some(format!("{}: ", g(431))),
+            Some((i32::from(p.prog_c) * 3).to_string()),
+            Some(format!("{}: ", g(432))),
+            Some((i32::from(p.prog_d) * 3).to_string()),
+            Some(format!("{}: ", g(563))),
+            Some("42".into()),
+            Some(format!("{}: ", g(562))),
+            Some("40".into()),
+            Some(format!("{}: ", g(38))),
+            Some(self.world.gold.to_string()),
+        ];
+        items[stats].stat_rows = Some(rows);
+        // The inventory walk (var_int_arr_k until 0).
+        self.active_weapon_item = None;
+        self.active_spell_item = None;
+        let inv: Vec<i32> = p
+            .var_int_arr_k
+            .iter()
+            .take_while(|&&v| v != 0)
+            .copied()
+            .collect();
+        let spells: Vec<i32> = p
+            .var_int_arr_h
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .take_while(|&&v| v != -1)
+            .copied()
+            .collect();
+        let (arr_f, arr_g) = (p.var_int_arr_f.clone(), p.var_int_arr_g.clone());
+        let player = p.clone();
+        let mut seen_weapon = false;
+        let mut seen_slot = [false; 9];
+        let (mut seen_f, mut seen_g) = (false, false);
+        for entry in inv {
+            let kind = (entry >> 8) & 0xFF;
+            let idx = entry & 0xFF;
+            match kind {
+                0 => {
+                    let row = self.vm.tables.row(4, idx).expect("weapon row").to_vec();
+                    let tname = self.item_name(&row);
+                    let bow = row[2] == 4;
+                    let prefix = if bow { g(400) } else { g(305) };
+                    let active = player.is_active_row(&row, false) && !seen_weapon;
+                    let mut item = MenuItem::new(
+                        format!("{prefix}{tname}"),
+                        Some(format!("{}: {}", g(432), row[3])),
+                        active,
+                    );
+                    item.enabled = player.class_allows_item(0, &row, &self.vm.tables);
+                    item.parent = Some(attack);
+                    let node = add(&mut items, item);
+                    items[attack].children.push(node);
+                    // b.var_c_a is set in the NON-bow branch only (javap 1527).
+                    if !bow && player.is_active_row(&row, false) {
+                        self.active_weapon_item = Some(node);
+                    }
+                    seen_weapon |= player.is_active_row(&row, false);
+                }
+                1 => {
+                    let row = self.vm.tables.row(1, idx).expect("armor row").to_vec();
+                    let equipped = player.has_armor_equipped(row[0]);
+                    let slot = row[3] as usize;
+                    let mut item = MenuItem::new(
+                        self.item_name(&row),
+                        Some(format!("{}: {}", g(444), row[4])),
+                        equipped && !seen_slot[slot],
+                    );
+                    item.enabled = player.class_allows_item(1, &row, &self.vm.tables);
+                    item.parent = Some(slot_pages[slot]);
+                    let node = add(&mut items, item);
+                    items[slot_pages[slot]].children.push(node);
+                    seen_slot[slot] |= equipped;
+                }
+                2 => {
+                    let row = self.vm.tables.row(2, idx).expect("consumable row").to_vec();
+                    let mut active = false;
+                    // The original compares row REFERENCES against the armed
+                    // arr_f/arr_g (they point into the same table); value
+                    // equality is equivalent — rows carry unique ids.
+                    if arr_f.as_deref() == Some(row.as_slice()) && !seen_f {
+                        active = true;
+                        seen_f = true;
+                    }
+                    if arr_g.as_deref() == Some(row.as_slice()) && !seen_g {
+                        active = true;
+                        seen_g = true;
+                    }
+                    let name = self.item_name(&row);
+                    let mut item = MenuItem::new(name.clone(), None, active);
+                    item.potion_group = if name == g(149) || name == g(151) {
+                        1
+                    } else if name == g(150) || name == g(152) {
+                        2
+                    } else {
+                        0
+                    };
+                    item.parent = Some(items_pg);
+                    let node = add(&mut items, item);
+                    items[items_pg].children.push(node);
+                }
+                _ => {}
+            }
+        }
+        for id in spells {
+            let row = self.vm.tables.row(8, id).expect("spell row").to_vec();
+            let active = player.is_active_row(&row, true);
+            let mut item =
+                MenuItem::new(format!("{}{}", g(304), self.item_name(&row)), None, active);
+            item.parent = Some(attack);
+            let node = add(&mut items, item);
+            items[attack].children.push(node);
+            if active {
+                self.active_spell_item = Some(node);
+            }
+        }
+        self.fmenu.open(
+            vec![4, 1, 2, 3, 18],
+            items,
+            vec![attack, armor, items_pg, stats],
+            None,
+            &self.masks,
+            &self.assets,
+        );
+        self.world.dirty = true; // var_boolean_n = true (the baked-over offscreen)
+    }
+
+    /// `b.a(c)` (b.java:2763) — the menu activation callback, dispatched on
+    /// the fired node's PARENT page name: Buy/Sell (lang 36/37) is the shop
+    /// (out of slice, loud); the Armor top page (lang 26 — descending into a
+    /// slot sub-page) un-marks the node; Attack (lang 25) arms the weapon or
+    /// spell by NAME (`h.a(j,String)`) with the `var_c_a`/`var_c_b`
+    /// cross-marking; Items (lang 27) USES the consumable (`h.b(j,int[])`);
+    /// anything else (the armor slot pages) equips the armor (`h.c`).
+    fn activate_item(&mut self, node: usize) {
+        let parent = self.fmenu.items[node]
+            .parent
+            .expect("fired node has a page");
+        let page_name = self.fmenu.items[parent].name.clone();
+        let name = self.fmenu.items[node].name.clone();
+        let is = |id: u16| page_name == self.lang.get(id);
+        if is(36) || is(37) {
+            panic!("the shop Buy/Sell activation (o()) is out of slice");
+        }
+        if is(26) {
+            self.fmenu.items[node].active = false;
+            return;
+        }
+        if is(25) {
+            // h.a(j, String): the lang-304 prefix = spell, lang-400 = bow,
+            // else the lang-305 weapon prefix.
+            let spell = name.starts_with(self.lang.get(304));
+            let (stripped, bow) = if spell {
+                (name[self.lang.get(304).len()..].to_string(), false)
+            } else if name.starts_with(self.lang.get(400)) {
+                (name[self.lang.get(400).len()..].to_string(), true)
+            } else {
+                (name[self.lang.get(305).len()..].to_string(), false)
+            };
+            let row = self.row_by_name(&stripped).expect("attack row by name");
+            if let Some(p) = self.world.actors[0].as_mut() {
+                if spell {
+                    p.activate_spell(&row);
+                } else {
+                    p.activate_weapon(&row, bow);
+                }
+            }
+            if spell {
+                if let Some(w) = self.active_weapon_item {
+                    self.fmenu.items[w].active = true;
+                }
+                self.active_spell_item = Some(node);
+            } else {
+                if let Some(sp) = self.active_spell_item {
+                    self.fmenu.items[sp].active = true;
+                }
+                self.active_weapon_item = Some(node);
+            }
+            return;
+        }
+        if is(27) {
+            let row = self.row_by_name(&name).expect("item row by name");
+            let is_vicar = self.item_name(&row) == self.lang.get(158);
+            if let Some(p) = self.world.actors[0].as_mut() {
+                p.use_consumable(&row, is_vicar, &self.vm.tables);
+            }
+            return;
+        }
+        // The armor slot pages: h.c(j, row) — permission-gated equip.
+        let row = self.row_by_name(&name).expect("armor row by name");
+        if let Some(p) = self.world.actors[0].as_mut() {
+            p.equip_armor(&row, &self.vm.tables);
+        }
+    }
+
     /// `b.p()` (javap 11641) — zero every page cursor and reset the page to
     /// the main (or in-game pause) menu. Called by the death screen's and
     /// Load-Game's `b:B` branches.
@@ -1513,6 +1848,7 @@ impl Shell {
             (10, _) => Some(Screen::IntroText),
             (0, _) => Some(Screen::Gameplay),
             (11, _) => Some(Screen::Death),
+            (2, _) => Some(Screen::ActionMenu),
             _ => None,
         }
     }
@@ -1699,11 +2035,17 @@ impl Shell {
             ),
             19 => paint_exit_dialog(&mut fb, &self.masks),
             11 => crate::paint::paint_death(&mut fb, &self.masks),
+            2 => {} // b.paint case 2 draws NOTHING (goto 5590) — f paints below
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \
                  LCD keeps the last frame while c() destroys the MIDlet)"
             ),
             other => anyhow::bail!("paint mode {other} not ported (out of slice)"),
+        }
+        // The paint TAIL (5590-5609): the open f menu draws over whatever the
+        // mode painted (mode 2 painted nothing, so the menu IS the frame).
+        if self.fmenu.open {
+            self.fmenu.paint(&mut fb, &self.masks, &self.assets);
         }
         Ok(fb)
     }

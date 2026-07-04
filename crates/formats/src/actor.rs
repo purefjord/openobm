@@ -1306,7 +1306,7 @@ impl Actor {
     /// `h.boolean_a(j, int, int[])` (h.java:2122) — may this actor's class use
     /// the weapon (`kind == 0`) / armor (`kind == 1`) row? Resolved against the
     /// subtype-5 class-permission list (`e.boolean_a`).
-    fn class_allows_item(&self, kind: i32, row: &[i32], tables: &Tables) -> bool {
+    pub fn class_allows_item(&self, kind: i32, row: &[i32], tables: &Tables) -> bool {
         if self.var_byte_f == -1 {
             return false;
         }
@@ -1442,6 +1442,118 @@ impl Actor {
         if let Some(b) = best {
             self.var_byte_j = b[0] as i8;
             self.var_byte_t = i8::from(b[2] == 4);
+        }
+    }
+
+    /// `h.a(j, int[], boolean)` (h.java:2010) — is `row` the actor's ACTIVE
+    /// weapon (`spell == false`: `var_byte_j == row[0]`) or drawn spell
+    /// (`spell == true`: `var_int_arr_m[0] == row[0]`)? The action menu's
+    /// checkmark test.
+    pub fn is_active_row(&self, row: &[i32], spell: bool) -> bool {
+        if let (Some(m), true) = (self.var_int_arr_m.as_ref(), spell) {
+            return row[0] == m[0];
+        }
+        if !spell {
+            return i32::from(self.var_byte_j) == row[0];
+        }
+        false
+    }
+
+    /// `h.boolean_a(j, int)` (h.java:1998) — is the armor id equipped in any
+    /// slot?
+    pub fn has_armor_equipped(&self, id: i32) -> bool {
+        self.var_int_arr_n.contains(&id)
+    }
+
+    /// `h.a(j, String)`'s spell arm (h.java:1954, the lang-304 branch body):
+    /// `var_int_arr_m` = the row, creature flag off; a DRAWN spell hand is
+    /// re-pointed and the status icon refreshed.
+    pub fn activate_spell(&mut self, row: &[i32]) {
+        self.var_int_arr_m = Some(row.to_vec());
+        self.var_byte_t = 0;
+        if self.var_int_arr_l.is_some() {
+            self.var_int_arr_l = self.var_int_arr_m.clone();
+            self.refresh_icon();
+        }
+    }
+
+    /// `h.a(j, String)`'s weapon arm: the creature flag from the lang-400
+    /// "Bow: " prefix, then `var_byte_j` = the row id.
+    pub fn activate_weapon(&mut self, row: &[i32], bow: bool) {
+        self.var_byte_t = i8::from(bow);
+        self.var_byte_j = row[0] as i8;
+    }
+
+    /// `h.b(j, int[])` (h.java:1857) — USE a consumable row (the Items-page
+    /// activation). `row[5] == 0`: the lang-158 "Vicar Herb" restores both
+    /// stats and is consumed (`is_vicar`), then a positive `[2]`/`[3]` ARMS
+    /// the quick-health/quick-fatigue row (note: after a vicar restore the
+    /// arming still runs — faithful), and `[4] > 0` cures poison + consumes.
+    /// `row[5] != 0`: the timed-buff block (J/K/L/M/N/O + recomputes, cure,
+    /// `P = row[5]`), consumed.
+    pub fn use_consumable(&mut self, row: &[i32], is_vicar: bool, tables: &Tables) {
+        if row[5] == 0 {
+            if is_vicar {
+                self.var_short_q =
+                    i32::from(self.var_short_o).min(i32::from(self.var_short_q) + row[2]) as i16;
+                self.var_short_r =
+                    i32::from(self.var_short_p).min(i32::from(self.var_short_r) + row[3]) as i16;
+                self.unequip(2, row, tables);
+                self.class_progression(tables);
+            }
+            if row[2] > 0 {
+                self.var_int_arr_f = Some(row.to_vec());
+                return;
+            }
+            if row[3] > 0 {
+                self.var_int_arr_g = Some(row.to_vec());
+                return;
+            }
+            if row[4] > 0 {
+                self.var_short_k = 0;
+                self.var_short_l = 0;
+                self.var_byte_w = -1;
+                self.unequip(2, row, tables);
+                self.class_progression(tables);
+            }
+        } else {
+            if row[3] > 0 {
+                self.j_bonus = row[3] as i16;
+                self.var_short_p = (i32::from(self.var_byte_o) * 4
+                    + i32::from(self.var_short_t) * 2
+                    + i32::from(self.j_bonus)) as i16;
+                self.var_short_r = self.var_short_p;
+                self.var_short_f = (40000 / i32::from(self.var_short_p)) as i16;
+            }
+            if row[6] > 0 {
+                self.k_bonus = row[6] as i16;
+            }
+            if row[7] > 0 {
+                self.l_bonus = row[7] as i16;
+            }
+            if row[8] > 0 {
+                self.m_bonus = row[8] as i16;
+            }
+            if row[10] > 0 {
+                self.n_bonus = row[10] as i16;
+            }
+            if row[11] > 0 {
+                self.o_bonus = row[11] as i16;
+                self.var_short_o = (i32::from(self.var_byte_o) * 4
+                    + (i32::from(self.var_short_s) + i32::from(self.o_bonus)) * 2
+                    + i32::from(self.var_short_x) * 2
+                    + i32::from(self.i_bonus)) as i16;
+                self.var_short_d = (40000 / i32::from(self.var_short_o)) as i16;
+            }
+            if row[4] > 0 {
+                self.var_short_k = 0;
+                self.var_short_l = 0;
+                self.var_byte_w = -1;
+            }
+            self.var_short_j = 0;
+            self.p_bonus = row[5] as i16;
+            self.unequip(2, row, tables);
+            self.class_progression(tables);
         }
     }
 

@@ -10,6 +10,7 @@
 pub mod asset;
 pub mod dump;
 pub mod fb;
+pub mod fmenu;
 pub mod gpaint;
 pub mod paint;
 pub mod script;

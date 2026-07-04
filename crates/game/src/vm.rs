@@ -86,6 +86,9 @@ pub struct GameVm {
     /// `var_java_lang_String_arr_a` — the inline-string pool. Loads overwrite
     /// the prefix; stale tails persist (faithful).
     pub strings: Vec<String>,
+    /// `var_int_d` — the CURRENT script's string count (the reverse-lookup
+    /// scan bound; stale tails beyond it are invisible to `int_a(String)`).
+    pool_fill: usize,
     /// `var_int_arr_f` — the subtype-7 flat list (`[0] = -1` on reset).
     pub flat7: Vec<i32>,
     /// `var_int_arr_g` — the subtype-9 global slot list.
@@ -123,6 +126,7 @@ impl GameVm {
             pristine0: vec![vec![0i32; 21]; 25],
             snapshot_pending: true,
             strings: Vec::new(),
+            pool_fill: 0,
             flat7: {
                 let mut v = vec![0i32; 100];
                 v[0] = -1;
@@ -172,6 +176,7 @@ impl GameVm {
                 self.strings.push(s.clone());
             }
         }
+        self.pool_fill = program.strings.len();
         // Section merge (arraycopy row -> table[index]).
         let mut aux_i: Option<Vec<(usize, Vec<i32>)>> = None;
         let mut aux_j: Option<Vec<(usize, Vec<i32>)>> = None;
@@ -253,6 +258,16 @@ impl GameVm {
             .get(idx as usize)
             .map(String::as_str)
             .unwrap_or("")
+    }
+
+    /// The pool half of `e.int_a(String)` — an exact-match scan over the
+    /// CURRENT script's pool entries (`0..var_int_d`); the caller falls back
+    /// to the lang reverse lookup (`0xF000 | id`).
+    pub fn pool_reverse(&self, s: &str) -> Option<i32> {
+        self.strings[..self.pool_fill.min(self.strings.len())]
+            .iter()
+            .position(|v| v == s)
+            .map(|i| i as i32)
     }
 
     /// Class-select rows: `l()` walks `e.h:[[I` taking rows with col0 > 0 and

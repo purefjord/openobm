@@ -553,6 +553,104 @@ fn quick_heal_consumes_an_armed_potion() {
     );
 }
 
+/// The mode-2 ACTION MENU at screenshot parity: `oracle/to_menu.txt` (one
+/// script, both sides, timescale 10) opens the menu at the second-dialogue
+/// hold via the sethud inject + key 22, walks all four tabs, descends into
+/// the Body armor page, and uses a Remove Poison from the Items page. The
+/// menu freezes the world and covers the whole screen, so plain shots are
+/// byte-comparable. Also asserts the activation side effects: the potion is
+/// consumed from the ACTOR (the menu graph is a snapshot — the row still
+/// shows, checkmarked), and BACK at a top page closes to mode 0.
+#[test]
+fn action_menu_at_parity() {
+    let script = std::fs::read_to_string(root().join("oracle/to_menu.txt")).expect("drive script");
+    let mut s = boot_shell();
+    let artifacts = game::script::drive(&mut s, &script).expect("drive");
+    for name in [
+        "m0_attack.png",
+        "m1_armor.png",
+        "m2_body.png",
+        "m3_items.png",
+        "m4_stats.png",
+        "m5_items_used.png",
+    ] {
+        let game::script::Artifact::Frame(fb) = &artifacts[name] else {
+            panic!("{name} is a frame artifact");
+        };
+        let real = game::fb::Fb::load_png(
+            &root().join(format!("tests/fixtures/oracle/frames/menu_{name}")),
+        )
+        .unwrap();
+        let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+        if bad != 0 {
+            let out = root().join("target/parity");
+            std::fs::create_dir_all(&out).unwrap();
+            fb.save_png(&out.join(format!("menu_{name}"))).unwrap();
+            diff.save_png(&out.join(format!("menu_diff_{name}")))
+                .unwrap();
+        }
+        assert_eq!(bad, 0, "{name} differs from the real menu shot");
+    }
+    // The Items fire consumed one Remove Poison from the actor.
+    let p = s.world.actors[0].as_ref().unwrap();
+    let potions = p.var_int_arr_k.iter().filter(|&&e| (e >> 8) == 2).count();
+    assert_eq!(potions, 2, "one of the three Remove Poison was consumed");
+    // BACK at the (descended-from) Items page pops... the drive left the
+    // menu on the Items page; two BACKs close it to mode 0.
+    assert_eq!(s.screen(), Some(Screen::ActionMenu));
+    tap(&mut s, 21);
+    assert_eq!(s.mode(), 0, "BACK at a top page closes the menu");
+    assert!(!s.fmenu.open);
+}
+
+/// Attack-page activation (`b.a(c)` -> `h.a(j,String)`): firing a spell arms
+/// `var_int_arr_m`, checkmarks the spell node, and RE-MARKS the active
+/// weapon (`b.var_c_a.var_boolean_a = true` — both stay checked); the
+/// weapon stays equipped (`var_byte_j` untouched).
+#[test]
+fn action_menu_spell_activation_cross_marks() {
+    let script = "\
+        timescale 10\n\
+        wait 5000\n\
+        tap fire\n\
+        wait 1000\n\
+        tap fire\n\
+        wait 500\n\
+        tap fire\n\
+        wait 20000\n\
+        tap fire\n\
+        wait 1000\n\
+        sethud 1\n\
+        tap 22\n\
+        wait 200\n\
+        tap down\n\
+        wait 200\n\
+        tap fire\n\
+        wait 200\n";
+    let mut s = boot_shell();
+    game::script::drive(&mut s, script).expect("drive");
+    assert_eq!(s.screen(), Some(Screen::ActionMenu));
+    let p = s.world.actors[0].as_ref().unwrap();
+    let arm = p.var_int_arr_m.as_ref().expect("spell armed");
+    assert_eq!(
+        s.tables().row(8, arm[0]).map(|r| r[0]),
+        Some(arm[0]),
+        "arr_m holds a subtype-8 spell row"
+    );
+    assert_eq!(p.var_byte_j, 7, "the equipped weapon is untouched");
+    let checked: Vec<&str> = s
+        .fmenu
+        .items
+        .iter()
+        .filter(|i| i.active)
+        .map(|i| i.name.as_str())
+        .collect();
+    assert!(
+        checked.contains(&"Weapon: Iron Club") && checked.contains(&"Spell: Shield"),
+        "both the weapon and the fired spell show checkmarks: {checked:?}"
+    );
+}
+
 /// The intro page (m=10) at a FIXED-SCROLL normalized shot (mirrors
 /// `oracle/to_textpages.txt` -> `artifacts/textpages`): the page auto-scrolls
 /// on the wall clock, so both sides pin `g:S = 180` (every intro line lands

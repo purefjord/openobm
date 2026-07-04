@@ -19,6 +19,7 @@
 //!   follow <slot>                 the op26 native (b.b(int))
 //!   setfloat <slot> <text|lang<id>>  install floating combat text
 //!   setscroll <g>                 pin the text-page scroll (g:S; h:S = 0)
+//!   sethud <0|1>                  the op76 HUD-enable flag (b.var_boolean_e)
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -57,6 +58,7 @@ pub enum Cmd {
     Follow(i32),
     SetFloat(usize, String),
     SetScroll(i16),
+    SetHud(bool),
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -90,6 +92,7 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "follow" => Cmd::Follow(arg()?.parse()?),
             "setfloat" => Cmd::SetFloat(arg()?.parse()?, arg()?.to_string()),
             "setscroll" => Cmd::SetScroll(arg()?.parse()?),
+            "sethud" => Cmd::SetHud(arg()? != "0"),
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -174,6 +177,7 @@ pub fn drive(
                 a.var_short_h = 0;
             }
             Cmd::SetScroll(g) => shell.set_scroll(g),
+            Cmd::SetHud(on) => shell.world.hud_enabled = on,
         }
     }
     Ok(artifacts)

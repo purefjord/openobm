@@ -146,6 +146,17 @@ impl Lang {
         }
         ""
     }
+
+    /// `b.int_b(String)` — reverse lookup over the BASE table only (the
+    /// original scans `var_short_arr_b`/`var_char_arr_a`, which hold lang_0;
+    /// overlay strings never reverse-resolve). First matching id in id order
+    /// (the scan runs ids 1..n ascending), or `None`.
+    pub fn reverse(&self, s: &str) -> Option<u16> {
+        self.base
+            .iter()
+            .find(|(_, v)| v.as_str() == s)
+            .map(|(&id, _)| id)
+    }
 }
 
 #[cfg(test)]
