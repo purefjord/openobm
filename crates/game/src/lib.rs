@@ -13,3 +13,5 @@ pub mod paint;
 pub mod script;
 pub mod shell;
 pub mod text;
+pub mod vm;
+pub mod wrap;

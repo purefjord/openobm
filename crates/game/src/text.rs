@@ -71,6 +71,11 @@ pub struct FontMetrics {
 pub struct TextMasks {
     fonts: HashMap<GameFont, FontMetrics>,
     masks: HashMap<(GameFont, String), Mask>,
+    /// Per-char advance widths (`Font.charWidth`) captured per font. The
+    /// capture VERIFIES `substringWidth(s,i,n)` equals the char-width sum for
+    /// every substring of the corpus, so summing these reproduces the exact
+    /// measurement the game's word-wrap (`b.a(String,Vector,int)`) performs.
+    char_widths: HashMap<GameFont, HashMap<char, i32>>,
 }
 
 impl TextMasks {
@@ -82,8 +87,27 @@ impl TextMasks {
         let mut lines = src.lines();
         let mut fonts = HashMap::new();
         let mut masks = HashMap::new();
+        let mut char_widths: HashMap<GameFont, HashMap<char, i32>> = HashMap::new();
         while let Some(line) = lines.next() {
             if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("charw ") {
+                let mut it = rest.split_whitespace();
+                let font = it
+                    .next()
+                    .and_then(GameFont::from_key)
+                    .ok_or_else(|| anyhow::anyhow!("bad charw line: {line}"))?;
+                let table = char_widths.entry(font).or_default();
+                for kv in it {
+                    let (code, w) = kv
+                        .split_once('=')
+                        .ok_or_else(|| anyhow::anyhow!("bad charw pair {kv}: {line}"))?;
+                    let code: u32 = code.parse()?;
+                    let c = char::from_u32(code)
+                        .ok_or_else(|| anyhow::anyhow!("bad char code {code}: {line}"))?;
+                    table.insert(c, w.parse()?);
+                }
                 continue;
             }
             if let Some(rest) = line.strip_prefix("font ") {
@@ -163,7 +187,11 @@ impl TextMasks {
             );
         }
         anyhow::ensure!(!fonts.is_empty(), "no font headers in fixture");
-        Ok(Self { fonts, masks })
+        Ok(Self {
+            fonts,
+            masks,
+            char_widths,
+        })
     }
 
     pub fn metrics(&self, font: GameFont) -> &FontMetrics {
@@ -179,6 +207,23 @@ impl TextMasks {
     /// `Font.stringWidth` for layout math (the game centers as `120 - w/2`).
     pub fn string_width(&self, font: GameFont, s: &str) -> i32 {
         self.get(font, s).string_width
+    }
+
+    /// `Font.substringWidth`-equivalent measurement for the word-wrap: the sum
+    /// of captured per-char advances (verified additive by the capture). A
+    /// char missing from the fixture is a hard error, same policy as masks.
+    pub fn substring_width(&self, font: GameFont, s: &str) -> i32 {
+        let table = self
+            .char_widths
+            .get(&font)
+            .unwrap_or_else(|| panic!("no charw table for {font:?} (rerun oracle/TextCapture)"));
+        s.chars()
+            .map(|c| {
+                *table.get(&c).unwrap_or_else(|| {
+                    panic!("char not in width fixture (extend the corpus + rerun oracle/TextCapture): {font:?} {c:?}")
+                })
+            })
+            .sum()
     }
 
     /// Draw `s` exactly as `Graphics.drawString(s, x, y, 0)` does on the
