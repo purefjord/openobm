@@ -9,3 +9,6 @@ Cargo.lock.bak
 /oracle/rms
 /oracle/rms.bak-pre-recon
 /rms.bak-pre-recon
+
+# parity harness scratch (regenerated on mismatch, never committed)
+/target/parity

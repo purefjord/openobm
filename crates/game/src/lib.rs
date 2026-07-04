@@ -7,5 +7,8 @@
 //! both the real jar (oracle/OracleRun) and this shell, and the checkpoint
 //! frames must match byte-for-byte on static, input-settled screens.
 
+pub mod asset;
 pub mod fb;
+pub mod paint;
+pub mod script;
 pub mod text;

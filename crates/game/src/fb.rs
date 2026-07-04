@@ -99,4 +99,27 @@ impl Fb {
             .filter(|(a, b)| a != b)
             .count()
     }
+
+    /// Compare the top `rows` rows (same width) against a real LCD frame; the
+    /// logical framebuffer is 345 tall but the device only shows the top 320.
+    /// Returns a diff framebuffer (magenta where they differ, else black) plus
+    /// the differing-pixel count, so a mismatch can be saved for inspection.
+    pub fn diff_region(&self, real: &Fb, rows: i32) -> (Fb, usize) {
+        assert_eq!(self.w, real.w, "width mismatch");
+        assert!(
+            rows <= self.h && rows <= real.h,
+            "region taller than frames"
+        );
+        let mut out = Fb::new(self.w, rows);
+        let mut bad = 0;
+        for y in 0..rows {
+            for x in 0..self.w {
+                if self.get(x, y) != real.get(x, y) {
+                    out.set(x, y, 0xFF_00_FF);
+                    bad += 1;
+                }
+            }
+        }
+        (out, bad)
+    }
 }
