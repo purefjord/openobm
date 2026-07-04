@@ -150,27 +150,10 @@ fn l01_layers_match_the_real_game_at_dialogue1() {
     assert_eq!(out, fixture, "L01 layer state differs from the real game");
 }
 
-/// The post-choreography WORLD STATE against the REAL game: `dumpworld` read
-/// the live actor array + world scalars at the same first-dialogue hold. The
-/// dump carries only settled-deterministic fields (walkers have ARRIVED at
-/// their exact targets behind the op21 gate; stats/equipment are op-driven;
-/// wall-clock-coupled timers/anim/camera-offset state is excluded) — so the
-/// whole spawn + class-init + equip + attr choreography diffs byte-for-byte.
-#[test]
-fn l01_world_state_matches_the_real_game_at_dialogue1() {
-    let mut s = shell_at_class_select();
-    tap(&mut s, 53);
-    for _ in 0..4000 {
-        s.tick(50);
-        if s.mode() == 0 && s.world.dialogue.is_some() {
-            break;
-        }
-    }
-    assert!(
-        s.world.dialogue.is_some(),
-        "never reached the dialogue hold"
-    );
-
+/// Build the world dump in `Instrument.dumpWorld`'s exact format (the
+/// settled-deterministic per-actor fields + world scalars + dialogue lines),
+/// shared by the hold-1 and hold-2 state gates.
+fn world_dump(s: &Shell) -> String {
     let mut out = String::new();
     out.push_str("# world dump: per-actor deterministic fields at a settled hold\n");
     for (n, slot) in s.world.actors.iter().enumerate() {
@@ -261,12 +244,38 @@ fn l01_world_state_matches_the_real_game_at_dialogue1() {
     ));
     let dlg = s.world.dialogue.as_ref().unwrap();
     out.push_str(&format!("dialogue:|{}\n", dlg.lines.join("|")));
+    out
+}
 
+/// The post-choreography WORLD STATE against the REAL game: `dumpworld` read
+/// the live actor array + world scalars at the same first-dialogue hold. The
+/// dump carries only settled-deterministic fields (walkers have ARRIVED at
+/// their exact targets behind the op21 gate; stats/equipment are op-driven;
+/// wall-clock-coupled timers/anim/camera-offset state is excluded) — so the
+/// whole spawn + class-init + equip + attr choreography diffs byte-for-byte.
+#[test]
+fn l01_world_state_matches_the_real_game_at_dialogue1() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..4000 {
+        s.tick(50);
+        if s.mode() == 0 && s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(
+        s.world.dialogue.is_some(),
+        "never reached the dialogue hold"
+    );
     let fixture =
         std::fs::read_to_string(root().join("tests/fixtures/oracle/l01_world_dialogue1.txt"))
             .unwrap()
             .replace("\r\n", "\n");
-    assert_eq!(out, fixture, "L01 world state differs from the real game");
+    assert_eq!(
+        world_dump(&s),
+        fixture,
+        "L01 world state differs from the real game"
+    );
 }
 
 /// Render the gameplay frame at the first-dialogue hold and save it for
@@ -340,6 +349,124 @@ fn l01_please_wait_at_parity() {
             .unwrap();
     }
     assert_eq!(bad, 0, "please-wait differs from the normalized real shot");
+}
+
+/// Drive to the SECOND dialogue hold: dismiss the first guard dialogue (FIRE
+/// after the 1s rule) and let the cutscene run to its next op53 ("Quick,
+/// Emperor, the secret passageway is in this cell.") — another settled,
+/// VM-halted hold (the oracle's a1 == a2 shots pin that it is settled).
+fn shell_at_dialogue2() -> Shell {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..4000 {
+        s.tick(50);
+        if s.mode() == 0 && s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(s.world.dialogue.is_some(), "never reached hold 1");
+    for _ in 0..24 {
+        s.tick(50); // clear the 1s FIRE-dismiss rule
+    }
+    tap(&mut s, 53);
+    assert!(s.world.dialogue.is_none(), "dismiss failed");
+    for _ in 0..100 {
+        s.tick(50);
+        if s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(s.world.dialogue.is_some(), "never reached hold 2");
+    s
+}
+
+/// The normalized-shot pixel gate shared by the anchor tests.
+fn assert_frame(s: &mut Shell, name: &str, fixture: &str) {
+    s.normalize_for_shot();
+    let fb = s.render().expect("gameplay paint");
+    let out = root().join("target/parity");
+    std::fs::create_dir_all(&out).unwrap();
+    fb.save_png(&out.join(format!("{name}_rust.png"))).unwrap();
+    let real =
+        game::fb::Fb::load_png(&root().join(format!("tests/fixtures/oracle/frames/{fixture}")))
+            .unwrap();
+    let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+    if bad != 0 {
+        diff.save_png(&out.join(format!("{name}_diff.png")))
+            .unwrap();
+    }
+    assert_eq!(bad, 0, "{name} differs from the normalized real shot");
+}
+
+/// The SECOND dialogue hold at normalized-shot parity (oracle a1, pinned
+/// settled by a1 == a2).
+#[test]
+fn l01_dialogue2_at_parity() {
+    let mut s = shell_at_dialogue2();
+    assert_frame(&mut s, "l01_dialogue2", "l01_dialogue2_norm.png");
+}
+
+/// The hold-2 WORLD STATE against the real game's `dumpworld` (the whole
+/// dismiss -> cutscene-advance -> second-op53 chain diffs byte-for-byte).
+#[test]
+fn l01_world_state_matches_the_real_game_at_dialogue2() {
+    let s = shell_at_dialogue2();
+    let fixture =
+        std::fs::read_to_string(root().join("tests/fixtures/oracle/l01_world_dialogue2.txt"))
+            .unwrap()
+            .replace("\r\n", "\n");
+    assert_eq!(
+        world_dump(&s),
+        fixture,
+        "L01 world state differs from the real game at hold 2"
+    );
+}
+
+/// FLOATING COMBAT TEXT at normalized-shot parity: at the settled hold both
+/// sides install the same floats (the oracle injected them into the PAUSED
+/// real game: slot 3 "12" — the plain red damage-number path — and slot 2
+/// lang 471 "- Dodge - " — the green string-compared path), then shoot with
+/// no tick in between. The paint's `Q == 0` branch initializes the rise
+/// position and color on both sides (h.a draw, h.java:530).
+#[test]
+fn l01_floating_text_at_parity() {
+    let mut s = shell_at_dialogue2();
+    for (slot, text) in [(3usize, "12"), (2, "<471>")] {
+        let a = s.world.actors[slot].as_mut().expect("anchor actor");
+        a.floating_text = Some(text.into());
+        a.q_field = 0;
+        a.r_field = 0;
+        a.var_short_h = 0;
+    }
+    assert_frame(&mut s, "l01_float", "l01_float_norm.png");
+}
+
+/// The PICKUP-PROXIMITY HINT anchor: both sides teleport the player (the real
+/// op36 native `h.a(j,int,int)`) next to the op49 marker at tile (21,30) (the
+/// neighboring scamps have E=1 — no aggro), re-follow the camera (the real
+/// op26 native `b.b(int)` — the speaker becomes the player, so the dialogue's
+/// first line loses its dark-red prefix, faithfully), then run live ticks: the
+/// run()-loop proximity scan fires the lang-363 "Examine" HUD hint. The hint
+/// BAND paints at y=323.. — inside the clipped 320..345 logical band, so it
+/// is asserted as state; the frame pins the marker tile, the enemy health
+/// bars, and the post-teleport camera.
+#[test]
+fn l01_pickup_hint_at_parity() {
+    let mut s = shell_at_dialogue2();
+    {
+        let a = s.world.actors[0].as_mut().expect("player");
+        formats::set_position(a, 2752, 3904);
+    }
+    s.world.camera_follow(0);
+    for _ in 0..16 {
+        s.tick(50); // ~800ms: the actor-loop proximity scan fires the hint
+    }
+    assert_eq!(
+        s.world.hud.as_ref().map(|h| h.text.as_str()),
+        Some("Examine"), // lang 363
+        "the pickup-proximity hint is showing"
+    );
+    assert_frame(&mut s, "l01_pickup_hint", "l01_pickup_hint_norm.png");
 }
 
 /// The intro text page is fed by op66 (`b.e(String)` = lang 445 via the L01

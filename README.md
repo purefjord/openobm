@@ -99,6 +99,9 @@ from FreeJ2ME's own `drawString` path as whole-string ink masks
 | L01 map layers at the first-dialogue hold | collision + all visual layers incl. every op18/22/49 script write vs the live `dumpjtm` | byte-identical |
 | the mode-0 GAMEPLAY frame (normalized) | `paint` case 0 — base-map cache + top-layer/actor interleave (shadows, poses, speech bubble), camera `r()`/`q()`, the dialogue box with the dark-red speaker prefix — vs the real LCD after the shared anim/effect/camera normalization (`shotnorm` == `normalize_for_shot`) | byte-identical |
 | the please-wait screen (`m=15`, normalized) | black fill + large-bold literal "Please Wait..." + the oh_pc group-5 anim | byte-identical |
+| the SECOND dialogue hold (normalized) | dismiss -> the cutscene's next op53 hold; settledness pinned by two oracle shots 1s apart (a1 == a2) + a second byte-identical `dumpworld` state gate | byte-identical |
+| floating combat text (injected anchor) | both sides install the same floats at the paused hold (slot 3 "12" = the plain red path, slot 2 lang-471 "- Dodge - " = the green string-compared path) and shoot with no tick between — validates the `h.a` draw's `Q==0` rise/color init + medium-font stamp | byte-identical |
+| pickup marker + enemy health bars (injected anchor) | both sides teleport the player (the real op36 native) beside the op49 marker at tile (21,30), re-follow the camera (the real op26 native), tick ~800ms so the run()-loop proximity scan fires the lang-363 hint (asserted as state — its band paints at y=323.., inside the clipped 320..345 region), then shoot: pins the -45 marker tile, the enemy health bars, scamp sprites, and the post-teleport camera | byte-identical |
 
 Static, input-settled screens only. Animated screens (the boot splash, the
 ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
