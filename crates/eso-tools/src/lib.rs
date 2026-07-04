@@ -1575,6 +1575,7 @@ pub fn dump_corpse_sweep() -> Result<String> {
         let mut rng = JavaRandom::new(0);
         let mut fx = Effects::new();
         for (fi, &l) in frames.iter().enumerate() {
+            let mut events = Vec::new();
             Actor::tick(
                 1,
                 &mut actors,
@@ -1585,8 +1586,15 @@ pub fn dump_corpse_sweep() -> Result<String> {
                 &mut tables.clone(),
                 &mut fx,
                 None,
-                &mut Vec::new(),
+                &mut events,
             );
+            // The corpse branch defers the removal (`b.a(slot)` — the real
+            // call is synchronous); apply it here like the world drain does.
+            for ev in events {
+                if let formats::WorldEvent::RemoveActor(slot) = ev {
+                    actors[slot] = None;
+                }
+            }
             match actors[1].as_ref() {
                 Some(v) => writeln!(out, "{name} {fi} 1 {}", v.var_short_i)?,
                 None => writeln!(out, "{name} {fi} 0 -1")?,

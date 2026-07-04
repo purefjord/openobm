@@ -245,6 +245,11 @@ pub struct World {
     /// `b.a(true)` consumes the key latch (`var_int_a = sentinel`); the shell
     /// owns the latch, so the unlock raises this flag for it.
     pub consume_key: bool,
+    /// `b.void_a(0)` ran (the player-death sequence): the shell converts this
+    /// to `set_mode(11)` immediately after the event drain — the real mode
+    /// flip happens inside `void_a`, and the actor loop's per-slot mode check
+    /// must see it the same frame.
+    pub player_died: bool,
     pub combat_flag: bool, // var_boolean_c (op7)
     pub hud_enabled: bool, // var_boolean_e (op76)
     pub gold: i32,         // b.var_int_b
@@ -287,6 +292,7 @@ impl World {
             respawn: [0, 0],
             input_unlocked: true,
             consume_key: false,
+            player_died: false,
             combat_flag: true, // <clinit>: var_boolean_c = true
             hud_enabled: true,
             gold: 0,
@@ -421,13 +427,25 @@ impl World {
         Some(slot)
     }
 
-    /// `b.void_a(int)` (b.java:2570) — remove an actor. Slot 0 (player death)
-    /// is the mode-11 death screen — out of slice, fenced by the caller.
-    pub fn remove_actor(&mut self, slot: usize) {
+    /// `b.void_a(int)` (b.java:2570) — remove an actor. Slot 0 is the PLAYER
+    /// DEATH sequence: effects cleared, mode 11 (raised as [`Self::player_died`]
+    /// — the shell converts it to `set_mode(11)` immediately after the drain),
+    /// `h.a(var_j_a)` re-init + teleport to the op71 respawn anchor, HUD text
+    /// cleared; the slot is NOT nulled.
+    pub fn remove_actor(&mut self, slot: usize, tables: &Tables) {
         if self.actors[slot].is_none() {
             return;
         }
-        assert!(slot != 0, "player removal (mode-11 death screen) is fenced");
+        if slot == 0 {
+            self.effects.clear_all(); // i.a()
+            self.player_died = true; // b.a((byte)11)
+            let p = self.actors[0].as_mut().unwrap();
+            p.player_reset(tables); // h.a(j)
+            let (x, y) = (i32::from(self.respawn[0]), i32::from(self.respawn[1]));
+            formats::set_position(p, x, y); // h.a(j, var_short_i, var_short_j)
+            self.set_hud_text(None, 0, 0, 0); // b.a(null, 0, 0, 0)
+            return;
+        }
         if slot as i8 == self.cam_follow {
             self.speaker = None; // b.g(null)
         }
@@ -584,7 +602,7 @@ impl World {
             match ev {
                 WorldEvent::PushEntry(entry) => pushes.push(entry),
                 WorldEvent::DropLoot { item, x, y } => self.drop_pickup(item, false, x, y),
-                WorldEvent::RemoveActor(slot) => self.remove_actor(slot),
+                WorldEvent::RemoveActor(slot) => self.remove_actor(slot, tables),
                 WorldEvent::Summon { caster, x, y } => {
                     // h.c:1524: b.var_b_a.a("/oh_scamp.cml", x, y, caster row):
                     // top-down free-slot scan, then the six-arg spawner.

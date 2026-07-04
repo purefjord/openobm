@@ -1445,6 +1445,61 @@ impl Actor {
         }
     }
 
+    /// `h.a(j, boolean)` (h.java:1916) — the quick-use keys: when the armed
+    /// health (`health`) / fatigue potion row exists and the stat is below
+    /// max, remove one from the inventory (`h.b`, which ends in `h.f`),
+    /// restore `row[2]` / `row[3]` clamped, `h.f` again, then re-scan the
+    /// FULL inventory array for the next kind-2 row with a positive restore
+    /// — the LAST match wins (the original keeps overwriting). A full stat
+    /// or an unarmed row does nothing.
+    pub fn quick_use(&mut self, health: bool, tables: &Tables) {
+        if health {
+            let Some(row) = self.var_int_arr_f.clone() else {
+                return;
+            };
+            if self.var_short_q >= self.var_short_o {
+                return;
+            }
+            self.unequip(2, &row, tables);
+            self.var_short_q =
+                i32::from(self.var_short_o).min(i32::from(self.var_short_q) + row[2]) as i16;
+            self.class_progression(tables);
+            self.var_int_arr_f = None;
+            for n in 0..self.var_int_arr_k.len() {
+                let entry = self.var_int_arr_k[n];
+                if (entry >> 8) & 0xFF != 2 {
+                    continue;
+                }
+                let row2 = tables.row(2, entry & 0xFF).expect("consumable row");
+                if row2[2] > 0 {
+                    self.var_int_arr_f = Some(row2.to_vec());
+                }
+            }
+        } else {
+            let Some(row) = self.var_int_arr_g.clone() else {
+                return;
+            };
+            if self.var_short_r >= self.var_short_p {
+                return;
+            }
+            self.unequip(2, &row, tables);
+            self.var_short_r =
+                i32::from(self.var_short_p).min(i32::from(self.var_short_r) + row[3]) as i16;
+            self.class_progression(tables);
+            self.var_int_arr_g = None;
+            for n in 0..self.var_int_arr_k.len() {
+                let entry = self.var_int_arr_k[n];
+                if (entry >> 8) & 0xFF != 2 {
+                    continue;
+                }
+                let row2 = tables.row(2, entry & 0xFF).expect("consumable row");
+                if row2[3] > 0 {
+                    self.var_int_arr_g = Some(row2.to_vec());
+                }
+            }
+        }
+    }
+
     /// `h.a(j, int, int, e)` (h.java:1573) — the op34 attribute write, followed
     /// by the health/fatigue re-derivation (clamping current values), the race
     /// row refresh from the equipped weapon, the `E`/`F` defaults, and `h.f`.
@@ -1982,20 +2037,19 @@ impl Actor {
                 }
             }
         } else {
-            // Dead: corpse timer, then removal (b.a(var_byte_c - 1), b.java:2570) at
-            // >= 250ms. We model only the array slot becoming null; the player path
-            // (n == 0 -> sound/UI), the `b.g(null)` target-clear, and the
-            // var_int_o/void_b draw-order bookkeeping belong to the b.java loop.
+            // Dead: corpse timer, then removal — `b.a(var_byte_c - 1)`
+            // (b.java:2570 void_a) at >= 250ms. The real call is synchronous;
+            // the deferred event drains immediately after this actor's tick
+            // and before any other slot runs (the dead arm ends here, so
+            // nothing observes the interim). NPC slots are nulled with the
+            // speaker/max-actor bookkeeping; slot 0 runs the PLAYER-DEATH
+            // sequence (effects clear, mode 11, re-init + respawn — the slot
+            // survives).
             if self.var_short_i >= 250 {
-                debug_assert!(
-                    self.var_byte_c != 1,
-                    "player corpse removal (b.a(0): sound/UI) is out of scope"
-                );
-                debug_assert!(
-                    idx == (self.var_byte_c as usize).wrapping_sub(1),
-                    "var_byte_c must encode the actor's own slot + 1 (b.java:2547)"
-                );
-                return false; // remove: the caller leaves actors[idx] = None
+                events.push(WorldEvent::RemoveActor(
+                    (self.var_byte_c as usize).wrapping_sub(1),
+                ));
+                return true;
             }
             self.var_short_i = (i64::from(self.var_short_i) + l) as i16;
         }
@@ -2835,7 +2889,10 @@ mod tests {
             &mut Vec::new(),
         );
         assert_eq!(arr[1].as_ref().unwrap().var_short_i, 300);
-        // 300 >= 250: removed from the array.
+        // 300 >= 250: the removal is EMITTED (`b.a(var_byte_c - 1)` — the
+        // world drain performs the void_a bookkeeping / the slot-0 death
+        // sequence); the slot itself stays until the drain.
+        let mut events = Vec::new();
         Actor::tick(
             1,
             &mut arr,
@@ -2846,11 +2903,13 @@ mod tests {
             &mut tables.clone(),
             &mut Effects::new(),
             None,
-            &mut Vec::new(),
+            &mut events,
         );
-        assert!(
-            arr[1].is_none(),
-            "dead NPC removed at the 250ms corpse threshold"
+        assert_eq!(
+            events,
+            vec![WorldEvent::RemoveActor(1)],
+            "dead NPC removal emitted at the 250ms corpse threshold"
         );
+        assert!(arr[1].is_some(), "the slot survives until the drain");
     }
 }

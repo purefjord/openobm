@@ -19,11 +19,10 @@
 //! byte-for-byte against the real runtime (`tests/level_load.rs`).
 //!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - the in-game `n()` action menu (mode 2) and the quick heal/fatigue keys
-//!   yield [`Leave::GameKey`]; Custom Controls (mode 5), the overview stat
+//! - the in-game `n()` action menu (mode 2, the f.java menu system) yields
+//!   [`Leave::GameKey`]; Custom Controls (mode 5), the overview stat
 //!   tables (mode 18), Save/Load/overwrite (13/14/16) and the shop yield
-//!   [`Leave::Mode`]; the player-death screen (mode 11) asserts in
-//!   `World::remove_actor`;
+//!   [`Leave::Mode`];
 //! - the mode-9 outro end-transition is loud (its null-all keeps `b.var_j_a`
 //!   alive for a later spawner reuse — needs a player stash, outro slice);
 //! - `b()Z` (RecordStore has-save probe) is modeled as `false` — the pinned
@@ -81,8 +80,8 @@ impl Action {
 pub enum Leave {
     /// a menu item that opens an unported mode (Save/Load/shop/…)
     Mode(u8),
-    /// an in-game key that opens an unported screen (the `n()` action menu,
-    /// the quick-heal/quick-fatigue use)
+    /// an in-game key that opens an unported screen (the `n()` action menu —
+    /// the quick heal/fatigue keys are ported, `Actor::quick_use`)
     GameKey(i32),
 }
 
@@ -100,6 +99,7 @@ pub enum Screen {
     PleaseWait,   // m=15 (level-load anim — visual-only)
     IntroText,    // m=10 (the level intro page, auto-scrolls into mode 0)
     Gameplay,     // m=0
+    Death,        // m=11 (the player-death "Continue?" screen)
 }
 
 pub struct Shell {
@@ -418,9 +418,10 @@ impl Shell {
                 }
             }
             20 => {
-                // b.void_a(int): remove an actor (slot 0 = the mode-11 player
-                // death screen — fenced inside remove_actor).
-                self.world.remove_actor(op(0) as usize);
+                // b.void_a(int): remove an actor (slot 0 = the player-death
+                // sequence + the mode-11 death screen).
+                self.world.remove_actor(op(0) as usize, &self.vm.tables);
+                self.check_player_death();
             }
             21 => {
                 // The actor wait-list (var_int_arr_e).
@@ -905,13 +906,26 @@ impl Shell {
     }
 
     /// Apply the deferred actor-tick world events (trigger pushes into the
-    /// script stack; loot drops; the summon spawner).
+    /// script stack; loot drops; the summon spawner). A slot-0 removal ran
+    /// the death sequence inside the world — convert it to `set_mode(11)`
+    /// here (the real flip happens inside `void_a(0)`, and the actor loop's
+    /// per-slot mode check must see it the same frame).
     fn drain_events(&mut self, events: Vec<formats::WorldEvent>) {
         let pushes = self
             .world
             .apply_events(events, &self.vm.tables, &mut self.models);
         for entry in pushes {
             self.vm.push_entry(entry);
+        }
+        self.check_player_death();
+    }
+
+    /// Convert the world's `player_died` flag (the `b.void_a(0)` sequence)
+    /// into the mode-11 death screen.
+    fn check_player_death(&mut self) {
+        if self.world.player_died {
+            self.world.player_died = false;
+            self.set_mode(11);
         }
     }
 
@@ -1004,10 +1018,30 @@ impl Shell {
                         return;
                     }
                 }
+                11 => {
+                    // player-death screen (input 2974): a:B (22) "Continue?"
+                    // -> mode 0 (the player was already re-initialized +
+                    // respawned by the void_a(0) death sequence); b:B (21)
+                    // -> p() (cursors zeroed, page = f:Z ? 5 : 0) + mode 3.
+                    // Every branch sets p:B = 1 and falls to the tail.
+                    if key == 22 {
+                        self.set_mode(0);
+                    } else if key == 21 {
+                        self.p_reset();
+                        self.set_mode(3);
+                    }
+                    self.released = true; // p:B = 1 (3007)
+                }
                 _ => {}
             }
         }
-        // TAIL: f.a == 0 -> feed the VM (mode-0 keys arrive remapped, arming
+        // TAIL (3615): a latch consumed by a mode arm (the quick keys, the
+        // weapon toggle) skips the VM feed entirely — the sentinel check is
+        // the tail's FIRST instruction.
+        if self.latched == KEY_SENTINEL {
+            return;
+        }
+        // f.a == 0 -> feed the VM (mode-0 keys arrive remapped, arming
         // the op14 handlers) and the dialogue input `d(char)` (scroll/dismiss).
         self.vm.feed_key(i5);
         self.dialogue_input(i5);
@@ -1149,11 +1183,16 @@ impl Shell {
         }
         match i5 {
             0 | 1 => {
-                // Quick heal / quick fatigue (h.a(j, boolean)) — out of slice.
-                self.pending_leave = Some(Leave::GameKey(i5));
+                // h.a(j, i5 == 0) — quick health / quick magika-fatigue use
+                // (b(J) 611/639). The latch is consumed (a:I = sentinel,
+                // p:B = 0) and flow FALLS THROUGH to the overlay resample
+                // below (goto 1216) — the consumed latch then skips the VM
+                // tail via its sentinel check.
+                if let Some(p) = self.world.actors[0].as_mut() {
+                    p.quick_use(i5 == 0, &self.vm.tables);
+                }
                 self.latched = KEY_SENTINEL;
                 self.released = false;
-                return true;
             }
             7 => self.try_pickup(),
             _ => {}
@@ -1340,6 +1379,14 @@ impl Shell {
         false
     }
 
+    /// `b.p()` (javap 11641) — zero every page cursor and reset the page to
+    /// the main (or in-game pause) menu. Called by the death screen's and
+    /// Load-Game's `b:B` branches.
+    fn p_reset(&mut self) {
+        self.cursors = [0; 7];
+        self.page = if self.left_gameplay { 5 } else { 0 };
+    }
+
     /// `b.c()` (javap 16071) — the YES/exit native: mode 12 (terminal — the
     /// `a(byte)` setter latches there and `run()` exits its loop), repaint,
     /// a 2s real-time sleep, then `MIDlet.notifyDestroyed()` (on FreeJ2ME:
@@ -1465,6 +1512,7 @@ impl Shell {
             (15, _) => Some(Screen::PleaseWait),
             (10, _) => Some(Screen::IntroText),
             (0, _) => Some(Screen::Gameplay),
+            (11, _) => Some(Screen::Death),
             _ => None,
         }
     }
@@ -1497,6 +1545,12 @@ impl Shell {
     /// scroll anchor tests derive the mask corpus from it.
     pub fn text_pages(&self) -> &[Vec<String>] {
         &self.text_pages
+    }
+
+    /// The live script stat tables (`b.var_e_a`) — test access (the anchor
+    /// tests arm items through the same rows the game reads).
+    pub fn tables(&self) -> &formats::Tables {
+        &self.vm.tables
     }
 
     /// The text-page scroll `g:S` — read/set for the fixed-scroll anchors
@@ -1644,6 +1698,7 @@ impl Shell {
                 &self.assets,
             ),
             19 => paint_exit_dialog(&mut fb, &self.masks),
+            11 => crate::paint::paint_death(&mut fb, &self.masks),
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \
                  LCD keeps the last frame while c() destroys the MIDlet)"

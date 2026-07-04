@@ -198,6 +198,38 @@ pub fn paint_exit_dialog(fb: &mut Fb, masks: &TextMasks) {
     );
 }
 
+/// Paint the player-death screen (`b.paint` case 11, offset 3745): black
+/// fill, then three white LARGE-BOLD strings — the lang-428 "Continue?"
+/// prompt centered by its OWN width (unlike the exit dialog's lang-451
+/// quirk), and the same NO / YES soft-key row as the exit dialog (the YES x
+/// measures the pre-uppercase "Yes"), wholly inside the clipped 320..345
+/// band. The visible screen is just the centered prompt.
+pub fn paint_death(fb: &mut Fb, masks: &TextMasks) {
+    fb.fill(0x00_00_00);
+    let fh = masks.metrics(GameFont::LargeBold).midp_height;
+    let prompt = "Continue?"; // lang 428
+    let w = masks.string_width(GameFont::LargeBold, prompt);
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        prompt,
+        SCREEN_W / 2 - w / 2,
+        SCREEN_H / 2 - fh / 2,
+        0xFF_FF_FF,
+    );
+    let soft_y = SCREEN_H - fh - 2;
+    masks.stamp(fb, GameFont::LargeBold, "NO", 2, soft_y, 0xFF_FF_FF);
+    let w_yes = masks.string_width(GameFont::LargeBold, "Yes");
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        "YES",
+        SCREEN_W - w_yes - 2,
+        soft_y,
+        0xFF_FF_FF,
+    );
+}
+
 /// Paint a text page (`b.paint` cases 4/9/10/17/21/23, offset 2401):
 /// word-wrapped paragraph lines from `h(String)` at x=2, pitched
 /// `c:Font.height + 1` (11px), starting at `y = 3 + g:S`. Inverted pages

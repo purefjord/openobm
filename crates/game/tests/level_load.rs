@@ -470,6 +470,157 @@ fn l01_pickup_hint_at_parity() {
     assert_frame(&mut s, "l01_pickup_hint", "l01_pickup_hint_norm.png");
 }
 
+/// Drive from the class fire into the fight and on to the player's death:
+/// FIRE taps spaced ~4s dismiss the cutscene dialogues (and swing at air —
+/// harmless), then the scripted assassination fight plays out until
+/// `b.void_a(0)` fires the death sequence -> mode 11. The fight itself is
+/// RNG-phased (our fixed seed differs from the real game's wall seed), but
+/// the death screen's paint reads NO world state, so both sides converge on
+/// the same frame.
+fn shell_at_death() -> Shell {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53); // class fire
+    let mut next_fire = 0;
+    for n in 0..12000 {
+        s.tick(50);
+        if s.mode() == 11 {
+            return s;
+        }
+        // PASSIVE play: FIRE only dismisses dialogues (fighting back can win
+        // the fight instead — the unattended player is scripted to lose).
+        if s.mode() == 0 && s.world.dialogue.is_some() && n >= next_fire {
+            s.press(53);
+            next_fire = n + 40; // dismissal taps ~2s apart
+        }
+    }
+    panic!("the L01 fight never reached the mode-11 death screen");
+}
+
+/// The player-death screen (m=11) at screenshot parity, plus the death
+/// sequence itself: the player is re-initialized (`h.a(j)`) and teleported to
+/// the op71 respawn anchor BEFORE the screen shows; YES (a:B=22) resumes
+/// gameplay with that respawned player.
+#[test]
+fn player_death_screen_at_parity() {
+    let mut s = shell_at_death();
+    assert_eq!(s.screen(), Some(Screen::Death));
+    {
+        let p = s.world.actors[0].as_ref().expect("the slot is NOT nulled");
+        assert_eq!(p.var_short_q, p.var_short_o, "h.a(j) refilled health");
+        assert_eq!(
+            [p.var_int_arr_b[0] as i16, p.var_int_arr_b[1] as i16],
+            [s.world.respawn[0], s.world.respawn[1]],
+            "teleported to the op71 respawn anchor"
+        );
+        assert!(
+            s.world.hud.is_none(),
+            "b.a(null,0,0,0) cleared the HUD text"
+        );
+    }
+    // The static screen (black + lang 428 + the clipped NO/YES row).
+    let fb = s.render().expect("death paint");
+    let out = root().join("target/parity");
+    std::fs::create_dir_all(&out).unwrap();
+    fb.save_png(&out.join("death_rust.png")).unwrap();
+    let real =
+        game::fb::Fb::load_png(&root().join("tests/fixtures/oracle/frames/death_continue.png"))
+            .unwrap();
+    let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+    if bad != 0 {
+        diff.save_png(&out.join("death_diff.png")).unwrap();
+    }
+    assert_eq!(bad, 0, "death screen differs from the real shot");
+    // YES (a:B = 22) -> mode 0 (the oracle modelog pins the same 11 -> 0).
+    tap(&mut s, 22);
+    assert_eq!(s.mode(), 0, "Continue? YES resumes gameplay");
+    assert!(s.world.actors[0].is_some());
+}
+
+/// Death-screen NO (b:B = 21): `p()` zeroes every cursor and lands on the
+/// in-game pause page (f:Z is set — we left gameplay), mode 3.
+#[test]
+fn death_screen_no_returns_to_the_pause_menu() {
+    let mut s = shell_at_death();
+    tap(&mut s, 21);
+    assert_eq!(s.screen(), None); // mode 3, page 5 — the pause-style menu
+    assert_eq!(s.mode(), 3);
+}
+
+/// The quick heal key (bound key 7 = code 55 -> remap 0 -> `h.a(j, true)`):
+/// with no ARMED potion the key is a faithful no-op (the Monk's starting
+/// kind-2 items are quest keys — `row[2] == 0` never arms `var_int_arr_f`);
+/// once a real potion row is equipped (the exact path a potion pickup takes),
+/// the key consumes it — health restored (clamped), the 0x2xx inventory
+/// entry removed, and `arr_f` left unarmed (no other positive-restore
+/// consumable remains). The key is consumed before the VM tail (the 3615
+/// sentinel check).
+#[test]
+fn quick_heal_consumes_an_armed_potion() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    // Run into the fight until the player is damaged but alive, with input
+    // unlocked and no dialogue (the quick keys sit behind the same guard as
+    // movement).
+    let mut next_fire = 0;
+    let mut ready = false;
+    for n in 0..12000 {
+        s.tick(50);
+        if s.mode() != 0 {
+            if s.mode() == 11 {
+                break;
+            }
+            continue;
+        }
+        if s.world.dialogue.is_some() && n >= next_fire {
+            s.press(53);
+            next_fire = n + 40;
+        }
+        let damaged = s.world.actors[0]
+            .as_ref()
+            .is_some_and(|p| p.var_short_q < p.var_short_o && p.var_short_q > 0);
+        if damaged && s.world.dialogue.is_none() && s.world.input_unlocked {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "never reached a damaged-player hold in the fight");
+    // Unarmed: the starting quest keys never armed arr_f — the key no-ops.
+    let potions = |p: &formats::Actor| p.var_int_arr_k.iter().filter(|&&e| (e >> 8) == 2).count();
+    {
+        let p = s.world.actors[0].as_ref().unwrap();
+        assert!(p.var_int_arr_f.is_none(), "start items must not arm arr_f");
+    }
+    let before = potions(s.world.actors[0].as_ref().unwrap());
+    tap(&mut s, 55); // the quick-health binding (g:[B[0] = key '7')
+    assert_eq!(
+        potions(s.world.actors[0].as_ref().unwrap()),
+        before,
+        "no armed potion -> faithful no-op"
+    );
+    // Arm a real potion (subtype-2 row 1: +50 health, row[5] == 0) the way a
+    // pickup would, then use it.
+    let row = s.tables().row(2, 1).expect("potion row").to_vec();
+    let tables = s.tables().clone();
+    {
+        let p = s.world.actors[0].as_mut().unwrap();
+        p.equip(2, &row, false, &tables);
+        assert!(p.var_int_arr_f.is_some(), "the potion row arms arr_f");
+    }
+    let (hp, max, count) = {
+        let p = s.world.actors[0].as_ref().unwrap();
+        (p.var_short_q, p.var_short_o, potions(p))
+    };
+    tap(&mut s, 55);
+    let p = s.world.actors[0].as_ref().unwrap();
+    assert_eq!(potions(p), count - 1, "one consumable removed");
+    assert!(p.var_int_arr_f.is_none(), "no other potion to re-arm");
+    assert_eq!(
+        i32::from(p.var_short_q),
+        i32::from(max).min(i32::from(hp) + row[2]),
+        "health restored by the potion row, clamped"
+    );
+}
+
 /// The intro page (m=10) at a FIXED-SCROLL normalized shot (mirrors
 /// `oracle/to_textpages.txt` -> `artifacts/textpages`): the page auto-scrolls
 /// on the wall clock, so both sides pin `g:S = 180` (every intro line lands
