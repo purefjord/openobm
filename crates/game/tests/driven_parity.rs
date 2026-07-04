@@ -16,7 +16,6 @@
 
 use game::fb::Fb;
 use game::paint::LCD_H;
-use game::script::{parse, Cmd};
 use game::shell::{Screen, Shell};
 use game::text::TextMasks;
 use std::collections::HashMap;
@@ -31,35 +30,19 @@ fn boot_shell() -> Shell {
     Shell::boot(root().join("assets"), masks).unwrap()
 }
 
-/// Drive a freshly booted shell with an OracleRun-grammar script, returning
-/// each `shot`'s frame by name.
+/// Drive a freshly booted shell with an OracleRun-grammar script through the
+/// shared executor ([`game::script::drive`] — the same one-script-both-sides
+/// runner the unified gates use), returning each `shot`'s frame by name.
 fn run_script(script: &str) -> HashMap<String, Fb> {
     let mut shell = boot_shell();
-    let mut shots = HashMap::new();
-    for cmd in parse(script).unwrap() {
-        match cmd {
-            Cmd::Wait(ms) => {
-                let mut left = ms as i32;
-                while left > 0 {
-                    shell.tick(50.min(left));
-                    left -= 50;
-                }
-            }
-            Cmd::Tap(k) => {
-                shell.press(k);
-            }
-            Cmd::Press(k) => {
-                shell.hold(k); // held: re-dispatches every frame until release
-            }
-            Cmd::Release(_) => {
-                shell.release();
-            }
-            Cmd::Shot(name) => {
-                shots.insert(name, shell.render().unwrap());
-            }
-        }
-    }
-    shots
+    game::script::drive(&mut shell, script)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(name, a)| match a {
+            game::script::Artifact::Frame(fb) => Some((name, fb)),
+            game::script::Artifact::Text(_) => None,
+        })
+        .collect()
 }
 
 fn assert_parity(fb: &Fb, fixture: &str, label: &str) {

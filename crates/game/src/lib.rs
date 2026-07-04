@@ -8,6 +8,7 @@
 //! frames must match byte-for-byte on static, input-settled screens.
 
 pub mod asset;
+pub mod dump;
 pub mod fb;
 pub mod gpaint;
 pub mod paint;

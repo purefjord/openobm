@@ -109,6 +109,49 @@ fn class_fire_loads_l01_into_gameplay() {
     assert!(s.world.respawn != [0, 0], "op71 set the respawn anchor");
 }
 
+/// ONE script, BOTH sides: `oracle/to_l01_fast.txt` (the 10x-timescale L01
+/// drive) executed verbatim through the shared [`game::script::drive`]
+/// runner; every artifact it names (the normalized shot + both dumps at the
+/// first-dialogue hold) must equal the committED fixtures — which the REAL
+/// jar reproduced byte-for-byte when OracleRun ran the same file (see the
+/// script's header). Timescale semantics: the runner ticks `wait x scale`
+/// GAME-ms; the oracle's waits are real ms against its scaled clock.
+#[test]
+fn unified_l01_fast_drive_matches_the_oracle() {
+    let script =
+        std::fs::read_to_string(root().join("oracle/to_l01_fast.txt")).expect("drive script");
+    let mut s = boot_shell();
+    let artifacts = game::script::drive(&mut s, &script).expect("drive");
+    let fixture = |name: &str| {
+        std::fs::read_to_string(root().join("tests/fixtures/oracle").join(name))
+            .unwrap()
+            .replace("\r\n", "\n")
+    };
+    match &artifacts["f_world.txt"] {
+        game::script::Artifact::Text(t) => {
+            assert_eq!(t, &fixture("l01_world_dialogue1.txt"), "world dump")
+        }
+        _ => panic!("f_world.txt is a text artifact"),
+    }
+    match &artifacts["f_layers.txt"] {
+        game::script::Artifact::Text(t) => {
+            assert_eq!(t, &fixture("l01_layers_dialogue1.txt"), "layers dump")
+        }
+        _ => panic!("f_layers.txt is a text artifact"),
+    }
+    match &artifacts["f0_dialogue1.png"] {
+        game::script::Artifact::Frame(fb) => {
+            let real = game::fb::Fb::load_png(
+                &root().join("tests/fixtures/oracle/frames/l01_dialogue1_norm.png"),
+            )
+            .unwrap();
+            let (_, bad) = fb.diff_region(&real, game::paint::LCD_H);
+            assert_eq!(bad, 0, "normalized shot differs");
+        }
+        _ => panic!("f0_dialogue1.png is a frame artifact"),
+    }
+}
+
 /// The post-choreography MAP STATE against the REAL game: `oracle/to_l01.txt`
 /// drove the real jar to the same first-dialogue hold and `dumpjtm`'d the
 /// live layers (collision + the visual layer Vector, flat unsigned bytes,
@@ -128,123 +171,12 @@ fn l01_layers_match_the_real_game_at_dialogue1() {
         s.world.dialogue.is_some(),
         "never reached the dialogue hold"
     );
-    let mut out = String::new();
-    out.push_str(&format!("layers={}\n", 1 + s.world.layers.len()));
-    let mut dump = |layer: &[i8]| {
-        let line = layer
-            .iter()
-            .map(|&v| (v as u8).to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
-        out.push_str(&line);
-        out.push('\n');
-    };
-    dump(&s.world.collision);
-    for layer in &s.world.layers {
-        dump(layer);
-    }
+    let out = game::dump::layers_dump(&s);
     let fixture =
         std::fs::read_to_string(root().join("tests/fixtures/oracle/l01_layers_dialogue1.txt"))
             .unwrap()
             .replace("\r\n", "\n");
     assert_eq!(out, fixture, "L01 layer state differs from the real game");
-}
-
-/// Build the world dump in `Instrument.dumpWorld`'s exact format (the
-/// settled-deterministic per-actor fields + world scalars + dialogue lines),
-/// shared by the hold-1 and hold-2 state gates.
-fn world_dump(s: &Shell) -> String {
-    let mut out = String::new();
-    out.push_str("# world dump: per-actor deterministic fields at a settled hold\n");
-    for (n, slot) in s.world.actors.iter().enumerate() {
-        let Some(a) = slot else { continue };
-        out.push_str(&format!(
-            "actor {n} c={} f={} o={} j={} r={} t={} y={} z={} u={} s={} k={} p={} g={} v={} dead={}",
-            a.var_byte_c, a.var_byte_f, a.var_byte_o, a.var_byte_j, a.var_byte_r, a.var_byte_t,
-            a.var_byte_y, a.var_byte_z, a.var_byte_u, a.var_byte_s, a.var_byte_k, a.var_byte_p,
-            a.var_byte_g, a.var_byte_v, a.var_byte_q,
-        ));
-        out.push_str(&format!(
-            " st={},{},{},{},{},{},{}",
-            a.var_short_s,
-            a.var_short_t,
-            a.var_short_u,
-            a.var_short_v,
-            a.var_short_w,
-            a.var_short_x,
-            a.var_short_y,
-        ));
-        out.push_str(&format!(" hp={}/{}", a.var_short_q, a.var_short_o));
-        out.push_str(&format!(" fat={}/{}", a.var_short_r, a.var_short_p));
-        out.push_str(&format!(
-            " E={} F={} m={} az={}",
-            a.e_field, a.f_field, a.var_short_m, a.var_short_z
-        ));
-        out.push_str(&format!(
-            " pos={},{}",
-            a.var_int_arr_b[0], a.var_int_arr_b[1]
-        ));
-        out.push_str(&format!(
-            " walk={},{}",
-            a.var_int_arr_j[0], a.var_int_arr_j[1]
-        ));
-        let armor = a
-            .var_int_arr_n
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        out.push_str(&format!(" armor={armor}"));
-        let inv: Vec<String> = a
-            .var_int_arr_k
-            .iter()
-            .take_while(|&&v| v != 0)
-            .map(ToString::to_string)
-            .collect();
-        out.push_str(&format!(
-            " inv={}",
-            if inv.is_empty() {
-                "-".into()
-            } else {
-                inv.join(",")
-            }
-        ));
-        out.push_str(&format!(
-            " spell={}",
-            a.var_int_arr_l
-                .as_ref()
-                .map(|w| w[0].to_string())
-                .unwrap_or_else(|| "-".into())
-        ));
-        out.push_str(&format!(" model={}", a.model_name));
-        out.push_str(&format!(
-            " name={}\n",
-            a.display_name.as_deref().unwrap_or("-")
-        ));
-    }
-    out.push_str(&format!(
-        "cam={} respawn={},{} gold={} hud={} lock={} speaker={} dlg={} pickups={}\n",
-        s.world.cam_follow,
-        s.world.respawn[0],
-        s.world.respawn[1],
-        s.world.gold,
-        i32::from(s.world.hud_enabled),
-        i32::from(!s.world.input_unlocked),
-        s.world.speaker.as_deref().unwrap_or("-"),
-        i32::from(s.world.dialogue.is_some()),
-        if s.world.pickup_count == 0 {
-            "-".into()
-        } else {
-            s.world.pickups[..s.world.pickup_count as usize]
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        },
-    ));
-    let dlg = s.world.dialogue.as_ref().unwrap();
-    out.push_str(&format!("dialogue:|{}\n", dlg.lines.join("|")));
-    out
 }
 
 /// The post-choreography WORLD STATE against the REAL game: `dumpworld` read
@@ -272,7 +204,7 @@ fn l01_world_state_matches_the_real_game_at_dialogue1() {
             .unwrap()
             .replace("\r\n", "\n");
     assert_eq!(
-        world_dump(&s),
+        game::dump::world_dump(&s),
         fixture,
         "L01 world state differs from the real game"
     );
@@ -417,7 +349,7 @@ fn l01_world_state_matches_the_real_game_at_dialogue2() {
             .unwrap()
             .replace("\r\n", "\n");
     assert_eq!(
-        world_dump(&s),
+        game::dump::world_dump(&s),
         fixture,
         "L01 world state differs from the real game at hold 2"
     );
