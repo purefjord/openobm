@@ -84,10 +84,12 @@ from FreeJ2ME's own `drawString` path as whole-string ink masks
 | Checkpoint | Scope | Result |
 |---|---|---|
 | whole-string text | every on-path label stamped at the recon `(x,y,font,color)` vs the real title/menu/class-select frames | byte-identical |
-| title (`m=8`) | cream bg + `/5.png` logo centered on (120,172) + "Press any key" (blink-ON phase) | byte-identical |
-| main menu (`m=3 k=0`) | `/main.png` + red `<< >>` + centered "New Game" (empty-RMS baseline) | byte-identical |
-| class select (`m=3 k=1`) | `/main.png` + green header + carousel class name + clipped "BACK" | byte-identical |
-| driven flow | one input script (title → fire → menu → fire → class select) through the ported `b(J)` mode machine, each `shot` diffed | byte-identical |
+| boot logos (`m=8`) | `/1..3.png` over the op10 backgrounds, stepped by the REAL `startup.scr` through the ported script VM | byte-identical |
+| title (`m=8`) | cream bg + `/5.png` logo centered on (120,172) + "Press any key" (blink-ON phase, op60 key-gate) | byte-identical |
+| main menu (`m=3 k=0`) | `/main.png` + red `<< >>` + centered "New Game" (empty-RMS baseline; items from lang_0 via `l()`) | byte-identical |
+| class select (`m=3 k=1`) | `/main.png` + green header + carousel class name + clipped "BACK", cursors 0/1/2 (Monk/Nightblade/Barbarian — the real CLASS-TABLE order) | byte-identical |
+| driven flow | one input script from COLD BOOT (loader → logos → legal → title → key → script chain → menu → class select) through the ported loader + VM + `b(J)` mode machine, each `shot` diffed | byte-identical |
+| legal word-wrap | `h(String)` + the small-bold width math vs the 7 lines the real game drew (oracle textlog) | exact |
 
 Static, input-settled screens only. Animated screens (the boot splash, the
 ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
