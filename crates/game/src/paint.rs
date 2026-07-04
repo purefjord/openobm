@@ -232,8 +232,12 @@ pub fn paint_text_page(
 ) -> i32 {
     let inverted = matches!(mode, 4 | 21 | 23 | 17);
     fb.fill(if inverted { 0x00_00_00 } else { 0xE9_E9_C3 });
+    // BYTECODE CORRECTION (b.java:1012 + <clinit> 3266): mode 21 switches to
+    // `a:Font` = getFont(0,0,8) = SMALL PLAIN — the old recon prose said
+    // "default medium" (the legal scroll is animated/never gated, so the
+    // wrong draw font was invisible until the font table was pinned).
     let mut font = if mode == 21 {
-        GameFont::MediumPlain
+        GameFont::SmallPlain
     } else {
         GameFont::SmallBold
     };

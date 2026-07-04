@@ -97,6 +97,8 @@ from FreeJ2ME's own `drawString` path as whole-string ink masks
 | the L01 level load (`m=6→15→10→0`) | class fire → the REAL loader/VM runs the whole `/l01_1.scr` choreography (map, ~20 spawns, class init + equips, overlays, camera, respawn) into the mode-0 loop; the real-runtime modelog pins the same chain | mode chain + state |
 | L01 world state at the first-dialogue hold | the live actor array (stats/equipment/positions/flags), world scalars, and the wrapped dialogue lines vs `Instrument.dumpWorld` of the real game at the same op21-gated hold | byte-identical |
 | L01 map layers at the first-dialogue hold | collision + all visual layers incl. every op18/22/49 script write vs the live `dumpjtm` | byte-identical |
+| the mode-0 GAMEPLAY frame (normalized) | `paint` case 0 — base-map cache + top-layer/actor interleave (shadows, poses, speech bubble), camera `r()`/`q()`, the dialogue box with the dark-red speaker prefix — vs the real LCD after the shared anim/effect/camera normalization (`shotnorm` == `normalize_for_shot`) | byte-identical |
+| the please-wait screen (`m=15`, normalized) | black fill + large-bold literal "Please Wait..." + the oh_pc group-5 anim | byte-identical |
 
 Static, input-settled screens only. Animated screens (the boot splash, the
 ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**

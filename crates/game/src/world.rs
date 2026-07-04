@@ -31,39 +31,92 @@ pub struct Model {
     pub cml: formats::Cml,
 }
 
-impl Model {
-    /// `g.a(d, int)` / `g.b(d, int)` — the width/height of group `key`'s
-    /// *current* frame (its flag block's `[3]`/`[4]`). Loud on a missing or
-    /// static group — the callers only query animated groups.
-    pub fn frame_size(&self, key: i32) -> (i32, i32) {
-        let cursor = self
-            .anim
-            .current_frame(key)
-            .unwrap_or_else(|| panic!("model has no anim group {key}"));
-        // Walk the records in Anim::from_cml's node order to find the flag
-        // block behind this node.
-        let mut node = 0usize;
-        let target = self.anim.lookup(key).unwrap();
-        for rec in &self.cml.records {
-            if rec.skipped {
-                continue;
+/// One resolved drawable frame — what `g.a(Graphics, d, key, x, y)` reads
+/// off the group's CURRENT frame node.
+pub enum FrameRef {
+    /// A static record (`f == 0`): the whole image drawn at `(x+off, y+off)`.
+    Static {
+        path: String,
+        off_x: i32,
+        off_y: i32,
+        /// The node's `var_short_c` (the draw's return value; usually 0 for
+        /// statics — the record flag block's `[3]`).
+        width: i32,
+    },
+    /// An animated frame: a source sub-rect + offset + flip of the sheet.
+    Rect {
+        path: String,
+        view: render::sprite::FrameView,
+    },
+}
+
+/// Walk the records in Anim::from_cml's node order to the flag block +
+/// record behind the anim node for `key`, at `anim`'s current cursor.
+fn resolve_node<'a>(
+    cml: &'a formats::Cml,
+    anim: &Anim,
+    key: i32,
+) -> Option<(&'a formats::cml::CmlRecord, Option<&'a formats::cml::Flags>)> {
+    let target = anim.lookup(key)?;
+    let cursor = anim.current_frame(key)?;
+    let mut node = 0usize;
+    for rec in &cml.records {
+        if rec.skipped {
+            continue;
+        }
+        if rec.is_static {
+            if node == target {
+                return Some((rec, None));
             }
-            if rec.is_static {
+            node += 1;
+        } else {
+            for g in &rec.anim_groups {
                 if node == target {
-                    panic!("frame_size on static record (group {key}) is out of slice");
+                    let f = &g.frames[cursor.min(g.frames.len().saturating_sub(1))];
+                    return Some((rec, Some(f)));
                 }
                 node += 1;
-            } else {
-                for g in &rec.anim_groups {
-                    if node == target {
-                        let f = &g.frames[cursor.min(g.frames.len().saturating_sub(1))];
-                        return (f[3], f[4]);
-                    }
-                    node += 1;
-                }
             }
         }
-        panic!("anim node {target} not found in cml records");
+    }
+    None
+}
+
+/// `g.a(d, int)` / `g.b(d, int)` — the width/height of group `key`'s
+/// *current* frame (its flag block's `[3]`/`[4]`); 0 for a missing group
+/// (the original catches the NPE and returns 0).
+pub fn frame_size_of(cml: &formats::Cml, anim: &Anim, key: i32) -> (i32, i32) {
+    match resolve_node(cml, anim, key) {
+        Some((_, Some(f))) => (f[3], f[4]),
+        Some((rec, None)) => (rec.flags[3], rec.flags[4]),
+        None => (0, 0),
+    }
+}
+
+/// The group's current frame as a drawable [`FrameRef`], or `None` for a
+/// missing group (the original draw returns 0 without drawing).
+pub fn resolve_frame(cml: &formats::Cml, anim: &Anim, key: i32) -> Option<FrameRef> {
+    let (rec, flags) = resolve_node(cml, anim, key)?;
+    Some(match flags {
+        None => FrameRef::Static {
+            path: rec.path.clone(),
+            off_x: rec.flags[5],
+            off_y: rec.flags[6],
+            width: rec.flags[3],
+        },
+        Some(f) => FrameRef::Rect {
+            path: rec.path.clone(),
+            view: render::sprite::FrameView::from_flags(f),
+        },
+    })
+}
+
+impl Model {
+    pub fn frame_size(&self, key: i32) -> (i32, i32) {
+        frame_size_of(&self.cml, &self.anim, key)
+    }
+    pub fn frame(&self, key: i32) -> Option<FrameRef> {
+        resolve_frame(&self.cml, &self.anim, key)
     }
 }
 
@@ -99,6 +152,13 @@ impl ModelCache {
     pub fn frame_w(&mut self, name: &str) -> i32 {
         self.get(name).frame_size(1).0
     }
+
+    /// Reset every loaded model's anim cursors (the normalized-shot harness).
+    pub fn reset_all_anims(&mut self) {
+        for m in self.models.values_mut() {
+            m.anim.reset_all();
+        }
+    }
 }
 
 /// A HUD floating-text line (`b.a(String,int,int,int)`, b.java:2719).
@@ -123,6 +183,9 @@ pub struct Dialogue {
     pub lines: Vec<String>,
     /// Scroll offset (`var_int_u`, -1 on open).
     pub scroll: i32,
+    /// The box's inner text-window height (`var_int_w` = `min(b:S/2,
+    /// frame_h(51)) - 4`, computed by `b.f(String)`).
+    pub window_h: i32,
     /// All lines visible at the current scroll (`var_boolean_r`).
     pub shown_all: bool,
     /// Open-time accumulator standing in for the original's wall-clock
@@ -149,14 +212,26 @@ pub struct World {
 
     // --- actors ---
     pub actors: Vec<Option<Actor>>, // b.var_j_arr_a (25)
-    pub max_actor: i32,             // var_int_o
+    /// Each actor's OWN animation instance (`j.var_d_a` — `g.a(String)`
+    /// re-parses the model per call, so cursors are per-actor, NOT shared).
+    pub actor_anims: Vec<Option<Anim>>,
+    pub max_actor: i32, // var_int_o
     /// The persistent player (`b.var_j_a` survives level loads; slot 0 reuse).
     pub player_persists: bool,
 
-    // --- camera ---
+    // --- camera + the paint's render state ---
     pub cam_follow: i8, // var_byte_q (-1 = free)
     pub view: [i32; 2], // var_int_arr_i (screen offset)
     pub dirty: bool,    // var_boolean_n
+    /// The visible tile range (`q()`: `var_byte_arr_h` lo / `var_byte_arr_i` hi).
+    pub range_lo: [i32; 2],
+    pub range_hi: [i32; 2],
+    /// The cached base-map offscreen (`var_javax_microedition_lcdui_Image_a`,
+    /// re-rendered by `b(Graphics)` when `dirty`). The real loop paints every
+    /// frame; our shell consumes `dirty` per frame into `base_stale` and only
+    /// spends the pixels at render time.
+    pub base_cache: Option<crate::fb::Fb>,
+    pub base_stale: bool,
 
     // --- pickups (`a(int,boolean,int,int)`, b.java:2940) ---
     pub pickups: Vec<i8>,  // b.var_byte_arr_d triples (x, y, item)
@@ -197,11 +272,16 @@ impl World {
             leave: Vec::new(),
             action: Vec::new(),
             actors: vec![None; 25],
+            actor_anims: vec![None; 25],
             max_actor: 0,
             player_persists: false,
             cam_follow: -1,
             view: [0, 0],
             dirty: true,
+            range_lo: [0, 0],
+            range_hi: [0, 0],
+            base_cache: None,
+            base_stale: true,
             pickups: vec![0; 75],
             pickup_count: 0,
             respawn: [0, 0],
@@ -266,10 +346,15 @@ impl World {
         // `player_persists` marks it for the spawner's reuse path.
         self.player_persists = self.actors[0].is_some();
         let player = self.actors[0].take();
+        let player_anim = self.actor_anims[0].take();
         for a in self.actors.iter_mut() {
             *a = None;
         }
+        for a in self.actor_anims.iter_mut() {
+            *a = None;
+        }
         self.actors[0] = player;
+        self.actor_anims[0] = player_anim;
         self.effects.clear_all();
     }
 
@@ -305,6 +390,8 @@ impl World {
             }
         } else {
             let frame_w = models.frame_w(model);
+            // h.a(String, byte): var_d_a = g.a(model) — a FRESH anim instance.
+            self.actor_anims[slot] = Some(Anim::from_cml(&models.get(model).cml));
             let mut a = Actor::create(model, (slot + 1) as i8, frame_w);
             if slot == 0 {
                 // h.a(j, e:[B[1] + 1, false) — class id from the class-select
@@ -345,6 +432,7 @@ impl World {
             self.speaker = None; // b.g(null)
         }
         self.actors[slot] = None;
+        self.actor_anims[slot] = None;
         let mut n = slot as i32;
         if n == self.max_actor {
             while n > 0 && self.actors[n as usize].is_none() {

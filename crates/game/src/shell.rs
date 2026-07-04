@@ -19,8 +19,10 @@
 //! byte-for-byte against the real runtime (`tests/level_load.rs`).
 //!
 //! Explicit fences (everything leaving the slice is loud, never guessed):
-//! - the gameplay/please-wait/intro-page PAINTS (`render()` bails for modes
-//!   0/15/10 — the state slice landed first; screenshot parity is next);
+//! - the mode-10 intro-page RENDER (the text body + end transition are
+//!   ported; the m10 scroll-arrow/parchment-bar paint tail is not — the
+//!   gameplay (0) and please-wait (15) paints ARE ported at normalized-shot
+//!   byte parity, see `gpaint`);
 //! - the in-game `n()` action menu (mode 2) and the quick heal/fatigue keys
 //!   yield [`Leave::GameKey`]; Custom Controls (mode 5), the overview stat
 //!   tables (mode 18), Save/Load/overwrite (13/14/16) and the shop yield
@@ -426,9 +428,13 @@ impl Shell {
             }
             24 => {
                 let slot = op(0) as usize;
-                if let Some(a) = self.world.actors[slot].as_mut() {
-                    let name = a.model_name.clone();
-                    a.set_anim(op(1) as i8, Some(&mut self.models.get(&name).anim));
+                let World {
+                    actors,
+                    actor_anims,
+                    ..
+                } = &mut self.world;
+                if let Some(a) = actors[slot].as_mut() {
+                    a.set_anim(op(1) as i8, actor_anims[slot].as_mut());
                 }
             }
             25 => self.world.camera_hold(op(0), op(1)),
@@ -646,11 +652,13 @@ impl Shell {
         ];
         let lines =
             crate::wrap::wrap_dialogue(&self.masks, text, width, &subs, &mut self.world.speaker);
+        let window_h = (SCREEN_H >> 1).min(self.models.get(&ui).frame_size(51).1) - 4;
         self.world.dialogue = Some(Dialogue {
             lines,
             scroll: -1,
             shown_all: true,
             open_ms: 0,
+            window_h,
         });
     }
 
@@ -740,6 +748,19 @@ impl Shell {
             self.text_page_end(fy)
                 .expect("the mode-10 end transition is ported");
         }
+        // The paint's per-frame STATE effects for mode 0 (the real loop paints
+        // every frame): r() camera recenter, q() visible range, and b(G)'s
+        // dirty consumption (the pixel work is deferred to render — the flag
+        // lifecycle must match the original, or a later r() would see a stale
+        // dirty flag and recenter when the real game did not).
+        if self.mode == 0 {
+            crate::gpaint::r_camera(&mut self.world, &mut self.models);
+            crate::gpaint::q_range(&mut self.world);
+            if self.world.dirty {
+                self.world.dirty = false;
+                self.world.base_stale = true;
+            }
+        }
     }
 
     /// The text-page paint's final line y, computed without painting: `3 +
@@ -787,15 +808,10 @@ impl Shell {
                 by2 = p.var_byte_m;
             }
             let bl = self.world.dialogue.is_none() && self.world.input_unlocked;
-            let model_name = self.world.actors[n].as_ref().unwrap().model_name.clone();
             {
-                let model = if model_name.is_empty() {
-                    None
-                } else {
-                    Some(&mut self.models.get(&model_name).anim)
-                };
                 let World {
                     actors,
+                    actor_anims,
                     rng,
                     effects,
                     collision,
@@ -803,6 +819,7 @@ impl Shell {
                     map_h,
                     ..
                 } = &mut self.world;
+                let model = actor_anims[n].as_mut();
                 let map = MapRef {
                     base: layers.first().map(Vec::as_slice).unwrap_or(&[]),
                     coll: collision,
@@ -1059,9 +1076,9 @@ impl Shell {
         // h.a(player, i5, l) — the input dispatch (h.java:2043).
         let mut events = Vec::new();
         let consumed = {
-            let model_name = self.world.actors[0].as_ref().unwrap().model_name.clone();
             let World {
                 actors,
+                actor_anims,
                 rng,
                 effects,
                 collision,
@@ -1073,8 +1090,7 @@ impl Shell {
             let mut p = actors[0].take().unwrap();
             let consumed = match i5 {
                 3..=6 => {
-                    let model = &mut self.models.get(&model_name).anim;
-                    p.set_anim(1, Some(model));
+                    p.set_anim(1, actor_anims[0].as_mut());
                     let dir = match i5 {
                         3 => 2,
                         4 => 1,
@@ -1273,6 +1289,10 @@ impl Shell {
         }
         if i5 == 7 && d.open_ms >= 1000 {
             self.world.dialogue = None;
+            if let Some(p) = self.world.actors[0].as_mut() {
+                p.var_byte_n = 0; // var_j_a.var_byte_n = 0
+            }
+            self.released = true; // var_byte_p = 1
         }
     }
 
@@ -1447,6 +1467,26 @@ impl Shell {
         }
     }
 
+    /// The normalized-shot determinism reset, mirroring the oracle's
+    /// `Instrument.normalizeWorld`: reset every anim cursor (the singleton
+    /// models + each actor's own instance), zero the effect pool's anim
+    /// counters, re-follow the camera target (view = center - iso; sets the
+    /// dirty flag so the next paint's r() recenters with the NORMALIZED pose
+    /// height), then run the paint-state pass (r + q). Render afterward.
+    pub fn normalize_for_shot(&mut self) {
+        self.models.reset_all_anims();
+        for anim in self.world.actor_anims.iter_mut().flatten() {
+            anim.reset_all();
+        }
+        self.world.effects.reset_anim_counters();
+        let q = self.world.cam_follow;
+        if q >= 0 {
+            self.world.camera_follow(i32::from(q));
+        }
+        crate::gpaint::r_camera(&mut self.world, &mut self.models);
+        crate::gpaint::q_range(&mut self.world);
+    }
+
     pub fn mode(&self) -> i8 {
         self.mode
     }
@@ -1538,10 +1578,32 @@ impl Shell {
                  with the parchment scroll-arrow bar (.cml frame render, \
                  unported) — visual-only; its END transition (mode 0) is state"
             ),
-            0 | 15 => anyhow::bail!(
-                "gameplay/please-wait paint (mode {}) is the M11 render slice \
-                 (r()/q()/b(G) tiles+actors+HUD); this slice validates STATE",
-                self.mode
+            0 => {
+                let level_model = self
+                    .level_model
+                    .clone()
+                    .expect("mode 0 paint needs the op8 level model (var_d_a)");
+                let ui_model = self
+                    .ui_model
+                    .clone()
+                    .expect("mode 0 paint needs the op43 UI model (var_d_b)");
+                crate::gpaint::paint_gameplay(
+                    &mut fb,
+                    &mut self.world,
+                    &mut self.models,
+                    &self.assets,
+                    &self.masks,
+                    &self.lang,
+                    &level_model,
+                    &ui_model,
+                    self.level_bg,
+                );
+            }
+            15 => crate::gpaint::paint_please_wait(
+                &mut fb,
+                &self.masks,
+                &mut self.models,
+                &self.assets,
             ),
             19 => paint_exit_dialog(&mut fb, &self.masks),
             12 => anyhow::bail!(

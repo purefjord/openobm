@@ -191,6 +191,15 @@ impl Anim {
     pub fn nodes(&self) -> &[AnimNode] {
         &self.nodes
     }
+
+    /// Reset EVERY group's cursor to frame 0 (each `d` node's `var_d_b` back
+    /// to itself) — the normalized-screenshot harness's determinism reset,
+    /// mirrored by the oracle's `Instrument.normalizeWorld`.
+    pub fn reset_all(&mut self) {
+        for c in &mut self.cursors {
+            *c = 0;
+        }
+    }
 }
 
 #[cfg(test)]

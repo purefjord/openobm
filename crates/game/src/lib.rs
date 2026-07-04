@@ -9,6 +9,7 @@
 
 pub mod asset;
 pub mod fb;
+pub mod gpaint;
 pub mod paint;
 pub mod script;
 pub mod shell;

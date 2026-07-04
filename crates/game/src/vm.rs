@@ -424,14 +424,19 @@ impl GameVm {
     /// phase 0 locks input, follows the actor, walks the first axis at anim 2 /
     /// speed 900; phase 1 waits for arrival then walks to the target at anim 3 /
     /// speed 400; phase 2 waits for arrival then unlocks input and disarms.
-    fn seq_step(&mut self, world: &mut World, models: &mut ModelCache) {
+    fn seq_step(&mut self, world: &mut World, _models: &mut ModelCache) {
         let mut seq = self.seq.unwrap();
         let slot = seq.actor as usize;
         match seq.phase {
             0 => {
                 world.input_unlocked = false; // b.a(false)
                 world.camera_follow(seq.actor); // b.b(var_byte_b)
-                let a = world.actors[slot].as_mut().expect("sequencer actor");
+                let crate::world::World {
+                    actors,
+                    actor_anims: anims,
+                    ..
+                } = world;
+                let a = actors[slot].as_mut().expect("sequencer actor");
                 if seq.axis == 0 || seq.axis == 1 {
                     let x = a.var_int_arr_b[0];
                     a.set_walk_target(x, seq.target[1]);
@@ -439,19 +444,22 @@ impl GameVm {
                     let y = a.var_int_arr_b[1];
                     a.set_walk_target(seq.target[0], y);
                 }
-                let name = a.model_name.clone();
-                a.set_anim(2, Some(&mut models.get(&name).anim));
+                a.set_anim(2, anims[slot].as_mut());
                 a.attr_set(7, 900, &self.tables);
                 seq.phase = 1;
                 self.seq = Some(seq);
             }
             1 => {
-                let a = world.actors[slot].as_mut().expect("sequencer actor");
+                let crate::world::World {
+                    actors,
+                    actor_anims: anims,
+                    ..
+                } = world;
+                let a = actors[slot].as_mut().expect("sequencer actor");
                 if a.var_int_arr_j[0] != -1 {
                     return;
                 }
-                let name = a.model_name.clone();
-                a.set_anim(3, Some(&mut models.get(&name).anim));
+                a.set_anim(3, anims[slot].as_mut());
                 a.attr_set(7, 400, &self.tables);
                 a.set_walk_target(seq.target[0], seq.target[1]);
                 seq.phase = 2;

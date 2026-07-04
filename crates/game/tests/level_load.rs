@@ -269,6 +269,79 @@ fn l01_world_state_matches_the_real_game_at_dialogue1() {
     assert_eq!(out, fixture, "L01 world state differs from the real game");
 }
 
+/// Render the gameplay frame at the first-dialogue hold and save it for
+/// visual review (target/parity/l01_dialogue1_rust.png vs the real
+/// artifacts/l01/l5_first_dialogue.png). Not pixel-gated yet: animated
+/// sprite/effect frames are wall-clock-phased; the normalized-shot gate
+/// follows.
+#[test]
+fn l01_gameplay_at_parity() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..4000 {
+        s.tick(50);
+        if s.mode() == 0 && s.world.dialogue.is_some() {
+            break;
+        }
+    }
+    assert!(s.world.dialogue.is_some());
+    // The NORMALIZED shot: both sides reset anim cursors + effect counters
+    // and re-follow the camera at the settled hold (the oracle side is
+    // Instrument.normalizeWorld behind the `shotnorm` command), making the
+    // frame byte-comparable — anims/effects are otherwise wall-clock-phased.
+    s.normalize_for_shot();
+    let fb = s.render().expect("gameplay paint");
+    let out = root().join("target/parity");
+    std::fs::create_dir_all(&out).unwrap();
+    fb.save_png(&out.join("l01_dialogue1_rust.png")).unwrap();
+    let real =
+        game::fb::Fb::load_png(&root().join("tests/fixtures/oracle/frames/l01_dialogue1_norm.png"))
+            .unwrap();
+    let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+    if bad != 0 {
+        diff.save_png(&out.join("l01_dialogue1_diff.png")).unwrap();
+    }
+    assert_eq!(
+        bad, 0,
+        "gameplay frame differs from the normalized real shot"
+    );
+}
+
+/// The mode-15 please-wait screen at normalized parity.
+#[test]
+fn l01_please_wait_at_parity() {
+    let mut s = shell_at_class_select();
+    tap(&mut s, 53);
+    for _ in 0..40 {
+        s.tick(50);
+        if s.mode() == 15 {
+            break;
+        }
+    }
+    assert_eq!(s.mode(), 15, "the loader chain reaches the please-wait");
+    // A few more frames so the oh_pc anim has advanced (the oracle shot at
+    // ~2.5s is mid-anim) — the normalization resets it on both sides anyway.
+    for _ in 0..10 {
+        s.tick(50);
+    }
+    assert_eq!(s.mode(), 15);
+    s.normalize_for_shot();
+    let fb = s.render().expect("please-wait paint");
+    let out = root().join("target/parity");
+    std::fs::create_dir_all(&out).unwrap();
+    fb.save_png(&out.join("l01_please_wait_rust.png")).unwrap();
+    let real = game::fb::Fb::load_png(
+        &root().join("tests/fixtures/oracle/frames/l01_please_wait_norm.png"),
+    )
+    .unwrap();
+    let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+    if bad != 0 {
+        diff.save_png(&out.join("l01_please_wait_diff.png"))
+            .unwrap();
+    }
+    assert_eq!(bad, 0, "please-wait differs from the normalized real shot");
+}
+
 /// The intro text page is fed by op66 (`b.e(String)` = lang 445 via the L01
 /// overlay lang table) and auto-scrolls without input.
 #[test]

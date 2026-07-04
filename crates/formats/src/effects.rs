@@ -80,6 +80,21 @@ impl Effects {
         &self.pool
     }
 
+    /// Zero every armed slot's anim-step timer (`+3`), frame counter (`+4`),
+    /// and lifetime timer (`+8`) — the normalized-screenshot harness's
+    /// determinism reset, mirrored by the oracle's `Instrument.normalizeWorld`.
+    pub fn reset_anim_counters(&mut self) {
+        let mut s = 0;
+        while s < POOL_LEN {
+            if self.pool[s] != -1 {
+                self.pool[s + 3] = 0;
+                self.pool[s + 4] = 0;
+                self.pool[s + 8] = 0;
+            }
+            s += STRIDE;
+        }
+    }
+
     /// `i.int_a()`: the first free slot, scanning `n < length-9` — i.e. offsets
     /// `0,9,…,81` only. The 11th slot (offset 90) is updatable/drawable/clearable
     /// but **never allocated** (a faithful quirk of the `length - 9` bound).
