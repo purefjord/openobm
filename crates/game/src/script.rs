@@ -23,6 +23,8 @@
 //!   setflat <v...>                write the subtype-7 shop stock (e.f:[I)
 //!   callf                         invoke b.f() (the op45 checkpoint menu)
 //!   callhide / callshow           fire hideNotify/showNotify (m22 interrupt)
+//!   callmode <n>                  invoke the REAL setter b.a((byte)n) (op61 etc.)
+//!   calllang <id>                 the op56 native: load a lang overlay table
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -66,6 +68,8 @@ pub enum Cmd {
     CallF,
     CallHide,
     CallShow,
+    CallMode(i8),
+    CallLang(u16),
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -108,6 +112,8 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "callf" => Cmd::CallF,
             "callhide" => Cmd::CallHide,
             "callshow" => Cmd::CallShow,
+            "callmode" => Cmd::CallMode(arg()?.parse()?),
+            "calllang" => Cmd::CallLang(arg()?.parse()?),
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -197,6 +203,8 @@ pub fn drive(
             Cmd::CallF => shell.f_checkpoint_menu(),
             Cmd::CallHide => shell.hide_notify(),
             Cmd::CallShow => shell.show_notify(),
+            Cmd::CallMode(n) => shell.call_mode(n),
+            Cmd::CallLang(id) => shell.load_lang_overlay(id),
         }
     }
     Ok(artifacts)

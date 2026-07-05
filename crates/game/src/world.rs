@@ -328,6 +328,11 @@ impl World {
         self.enter = vec![-1; cells];
         self.leave = vec![-1; cells];
         self.action = vec![-1; cells];
+        // b.java:688: the map load zeroes the PICKUP count (var_byte_h
+        // only — the [75] triple array persists). Invisible on a first
+        // load, but a reload (the post-outro New Game) would otherwise
+        // double the marker list (oracle-pinned).
+        self.pickup_count = 0;
         self.effects.clear_all();
         self.dirty = true;
         Ok(())
@@ -349,7 +354,8 @@ impl World {
             p.var_j_c = -1;
         }
         // var_j_a persists across the load; model: slot 0 stays in place and
-        // `player_persists` marks it for the spawner's reuse path.
+        // `player_persists` marks it for the spawner's reuse path (the real
+        // reuse: an op29 mid-level script chain re-spawning slot 0).
         self.player_persists = self.actors[0].is_some();
         let player = self.actors[0].take();
         let player_anim = self.actor_anims[0].take();

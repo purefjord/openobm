@@ -347,13 +347,15 @@ impl Shell {
         match new {
             9 => {
                 self.left_gameplay = false;
-                self.text_pages = self.h(self.lang.get(547));
+                let text = self.lang.get(547).to_string();
+                self.text_pages = self.h(&text);
             }
             4 => {
                 // BYTECODE CORRECTION (a(byte) offset 134–147): the credits
                 // scroll starts at b:S - 4 * c:Font height — c:Font is SMALL
                 // BOLD (=305), not the medium font the recon prose said.
-                self.text_pages = self.h(self.lang.get(548));
+                let text = self.lang.get(548).to_string();
+                self.text_pages = self.h(&text);
                 let small_h = self
                     .masks
                     .metrics(crate::text::GameFont::SmallBold)
@@ -369,12 +371,14 @@ impl Shell {
                 self.scroll = 0;
             }
             23 => {
-                self.text_pages = self.h(self.lang.get(574));
+                let text = self.lang.get(574).to_string();
+                self.text_pages = self.h(&text);
                 self.scroll = 15;
                 self.end_latched = false; // p:Z = 0
             }
             17 => {
-                self.text_pages = self.h(self.lang.get(465));
+                let text = self.lang.get(465).to_string();
+                self.text_pages = self.h(&text);
                 self.scroll = 15;
                 self.end_latched = false; // p:Z = 0
             }
@@ -382,8 +386,13 @@ impl Shell {
         }
     }
 
-    /// `b.h(String)` — build the text-page model (see `wrap`).
-    fn h(&self, text: &str) -> Vec<Vec<String>> {
+    /// `b.h(String)` — build the text-page model (see `wrap`). QUIRK
+    /// (offset 121, caught by the outro drive's menu dump): the page build
+    /// calls `g(null)` — the dialogue SPEAKER clears on every text-page
+    /// entry (which is also why the outro paragraphs draw unprefixed while
+    /// a dialogue is still open underneath).
+    fn h(&mut self, text: &str) -> Vec<Vec<String>> {
+        self.world.speaker = None; // g(null)
         build_pages(&self.masks, text, &self.version)
     }
 
@@ -867,14 +876,15 @@ impl Shell {
             self.blink_ms = 500;
         }
         // Paint-side end-of-text checks for the auto-scrolling pages: the
-        // real loop paints every frame and the m=10 -> m=0 / m=4 -> m=3
-        // transitions live in the paint tail; our render only runs at shots,
-        // so evaluate the (pure) final-line y here each frame instead
-        // (render for 4/10 correspondingly skips the end check).
-        if matches!(self.mode, 10 | 4) {
+        // real loop paints every frame and the m=10 -> m=0 / m=4 -> m=3 /
+        // m=9 -> m=4 transitions live in the paint tail; our render only
+        // runs at shots, so evaluate the (pure) final-line y here each
+        // frame instead (render for 4/9/10 correspondingly skips the end
+        // check).
+        if matches!(self.mode, 10 | 4 | 9) {
             let fy = self.text_final_y();
             self.text_page_end(fy)
-                .expect("the mode-10/4 end transitions are ported");
+                .expect("the mode-9/10/4 end transitions are ported");
         }
         // The paint's per-frame STATE effects for mode 0 (the real loop paints
         // every frame): r() camera recenter, q() visible range, and b(G)'s
@@ -2394,6 +2404,16 @@ impl Shell {
             // reaches the spawner via the class-select cursor (e:[B[1]).
             self.k_clear();
             self.progress = 0;
+            // 2644-2668: null EVERY slot AND `var_j_a` (dup_x2 aastore +
+            // putfield each iteration) — a class fire ALWAYS builds a fresh
+            // player (the factory spawn), even right after the outro.
+            for a in self.world.actors.iter_mut() {
+                *a = None;
+            }
+            for a in self.world.actor_anims.iter_mut() {
+                *a = None;
+            }
+            self.world.player_persists = false;
             self.loader("/l01_1.scr").expect("class-fire level load");
             self.world.gold = 100;
         } else if is(22) {
@@ -2524,6 +2544,23 @@ impl Shell {
         &self.vm.flat7
     }
 
+    /// The `callmode` injection: invoke the REAL mode setter `b.a((byte)n)`
+    /// (arms and all — unlike `setmode`'s raw field write). The outro drive
+    /// uses it as the op61 stand-in.
+    pub fn call_mode(&mut self, n: i8) {
+        self.set_mode(n);
+    }
+
+    /// The `calllang` injection: the op56 native `b.a(String, int)` for an
+    /// overlay id (the outro text lang 547 lives in lang_12).
+    pub fn load_lang_overlay(&mut self, id: u16) {
+        let file = format!("lang_{id}.txt");
+        let bytes = std::fs::read(self.assets_dir.join(&file)).expect("overlay lang");
+        let overlay = formats::parse_lang_file(&bytes, id as u8)
+            .unwrap_or_else(|| panic!("unknown lang table id {id}"));
+        self.lang.set_overlay(overlay);
+    }
+
     /// The `setflat` injection: write the shop stock pairs + the -1
     /// terminator into `e.f:[I` (mirrors `Instrument.setFlat`).
     pub fn set_flat7(&mut self, vals: &[i32]) {
@@ -2627,7 +2664,7 @@ impl Shell {
                     self.banner,
                 )?;
             }
-            9 | 21 => {
+            21 => {
                 let ui = self.ui_model.clone();
                 let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
                 let final_y = paint_text_page(
@@ -2640,6 +2677,7 @@ impl Shell {
                     &mut self.scroll,
                     None,
                 );
+                // mode 21's end action is only the b:Z debounce toggle
                 self.text_page_end(final_y)?;
             }
             17 | 23 => {
@@ -2658,14 +2696,14 @@ impl Shell {
                 );
                 self.text_page_end(final_y)?;
             }
-            4 | 10 => {
-                // About credits roll / the intro page: the body + the
-                // clipped-band tails (About bottom bar + BACK; the m10
-                // parchment bar; the 53/54 scroll arrows from b:Ld). Their
-                // per-frame END transitions live in `tick` (the real loop
-                // paints every frame; render here is one of those paints,
-                // pixel-realized — running the end debounce again would
-                // double-count it).
+            4 | 9 | 10 => {
+                // About credits roll / the OUTRO page / the intro page: the
+                // body + the clipped-band tails (About bottom bar + BACK;
+                // the m10 parchment bar; the 53/54 scroll arrows from
+                // b:Ld). Their per-frame END transitions live in `tick`
+                // (the real loop paints every frame; render here is one of
+                // those paints, pixel-realized — running the end debounce
+                // again would double-count it).
                 let ui = self.ui_model.clone();
                 let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
                 paint_text_page(
@@ -2841,11 +2879,35 @@ impl Shell {
                         self.page = if self.left_gameplay { 5 } else { 0 };
                     }
                     10 => self.set_mode(0), // the intro chains into gameplay
-                    other => anyhow::bail!(
-                        "text-page end transition for mode {other} not ported \
-                         (the mode-9 outro chain nulls ALL actor slots while \
-                         b.var_j_a survives — needs a player stash, outro slice)"
-                    ),
+                    9 => {
+                        // The OUTRO end (3590-3672): dt rebase (elided in
+                        // virtual time), the menu reset (g:S = 265, h:S = 0,
+                        // FRESH page cursors, k = f:Z ? 5 : 0 — f:Z was
+                        // zeroed by the m9 entry), then null ALL actor
+                        // slots. The surviving `var_j_a` is WRITE-ONLY
+                        // garbage afterward (the class fire nulls it, a
+                        // load replaces it — oracle-pinned: the post-outro
+                        // New Game spawns a FRESH player), so no stash is
+                        // modeled. max_actor/camera/effects/the open
+                        // dialogue are untouched. Then mode 4 (the credits,
+                        // re-inited by its own arm). The 3s freeze elided.
+                        self.scroll = SCREEN_H as i16
+                            - 8 * self
+                                .masks
+                                .metrics(crate::text::GameFont::SmallBold)
+                                .midp_height as i16;
+                        self.scroll_acc = 0;
+                        self.cursors = [0; 7];
+                        self.page = if self.left_gameplay { 5 } else { 0 };
+                        for a in self.world.actors.iter_mut() {
+                            *a = None;
+                        }
+                        for a in self.world.actor_anims.iter_mut() {
+                            *a = None;
+                        }
+                        self.set_mode(4);
+                    }
+                    other => anyhow::bail!("text-page end transition for mode {other} not ported"),
                 }
             }
         }
