@@ -718,3 +718,48 @@ pub fn paint_stat_table(
     }
     more
 }
+
+/// Paint the interrupt screen (`b.paint` case 22, offset 5301, and the
+/// identical `f.a(Graphics)` tail when `f.a:Z` is armed): black fill, then
+/// three white LARGE-BOLD strings — `center` (lang 571 "Resume game?", or
+/// start.txt segment 2 before the lang load) centered on both axes,
+/// `exit_label` uppercased at (2, 329), and `yes_pre` uppercased but
+/// right-aligned by its PRE-uppercase width (the exit-dialog quirk). The
+/// soft-key row sits wholly inside the clipped 320..345 band.
+pub fn paint_interrupt(
+    fb: &mut Fb,
+    masks: &TextMasks,
+    center: &str,
+    exit_label: &str,
+    yes_pre: &str,
+) {
+    fb.fill(0x00_00_00);
+    let fh = masks.metrics(GameFont::LargeBold).midp_height;
+    let cw = masks.string_width(GameFont::LargeBold, center);
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        center,
+        SCREEN_W / 2 - cw / 2,
+        SCREEN_H / 2 - fh / 2,
+        0xFF_FF_FF,
+    );
+    let soft_y = SCREEN_H - fh - 2;
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        &exit_label.to_uppercase(),
+        2,
+        soft_y,
+        0xFF_FF_FF,
+    );
+    let w_pre = masks.string_width(GameFont::LargeBold, yes_pre);
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        &yes_pre.to_uppercase(),
+        SCREEN_W - w_pre - 2,
+        soft_y,
+        0xFF_FF_FF,
+    );
+}

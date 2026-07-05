@@ -20,6 +20,9 @@
 //!   setfloat <slot> <text|lang<id>>  install floating combat text
 //!   setscroll <g>                 pin the text-page scroll (g:S; h:S = 0)
 //!   sethud <0|1>                  the op76 HUD-enable flag (b.var_boolean_e)
+//!   setflat <v...>                write the subtype-7 shop stock (e.f:[I)
+//!   callf                         invoke b.f() (the op45 checkpoint menu)
+//!   callhide / callshow           fire hideNotify/showNotify (m22 interrupt)
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -59,6 +62,10 @@ pub enum Cmd {
     SetFloat(usize, String),
     SetScroll(i16),
     SetHud(bool),
+    SetFlat(Vec<i32>),
+    CallF,
+    CallHide,
+    CallShow,
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -93,6 +100,14 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "setfloat" => Cmd::SetFloat(arg()?.parse()?, arg()?.to_string()),
             "setscroll" => Cmd::SetScroll(arg()?.parse()?),
             "sethud" => Cmd::SetHud(arg()? != "0"),
+            "setflat" => Cmd::SetFlat(
+                it.by_ref()
+                    .map(str::parse)
+                    .collect::<Result<Vec<i32>, _>>()?,
+            ),
+            "callf" => Cmd::CallF,
+            "callhide" => Cmd::CallHide,
+            "callshow" => Cmd::CallShow,
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -178,6 +193,10 @@ pub fn drive(
             }
             Cmd::SetScroll(g) => shell.set_scroll(g),
             Cmd::SetHud(on) => shell.world.hud_enabled = on,
+            Cmd::SetFlat(vals) => shell.set_flat7(&vals),
+            Cmd::CallF => shell.f_checkpoint_menu(),
+            Cmd::CallHide => shell.hide_notify(),
+            Cmd::CallShow => shell.show_notify(),
         }
     }
     Ok(artifacts)

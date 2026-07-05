@@ -129,6 +129,8 @@ pub enum Screen {
     ControlsRedefine, // m=5 (the Custom Controls redefine list; m=20 confirms)
     KeyTaken,         // m=20 ("Key Already Taken" + OK)
     StatTable,        // m=18 (the overview stat tables)
+    Shop,             // m=1 (the o() Buy/Sell f menu)
+    Interrupt,        // m=22 (hideNotify's "Resume game?" screen)
 }
 
 pub struct Shell {
@@ -196,6 +198,12 @@ pub struct Shell {
     stat_w: usize,
     /// `q:Z` — "the down arrow was drawn" paint side effect; gates DOWN.
     q_flag: bool,
+    /// `n:B` — the mode saved by hideNotify (the interrupt screen's YES
+    /// restores it); -1 idle.
+    saved_mode: i8,
+    /// `d:Z` — the hideNotify park flag: `run()` sleeps instead of ticking
+    /// until showNotify clears it.
+    paused: bool,
     /// `var_java_lang_String_c` — the current level's script path (set by the
     /// loader; the save writes it as the record "name", the load re-runs the
     /// loader on it).
@@ -274,6 +282,8 @@ impl Shell {
             stat_v: 0,
             stat_w: 0,
             q_flag: false, // <clinit>
+            saved_mode: -1,
+            paused: false,
             level_script: String::new(),
             bool_o: false,
             save_slot: None,
@@ -395,15 +405,25 @@ impl Shell {
             vec![g(21), g(2), g(456), g(6), g(22)]
         };
         self.pages[1] = self.vm.class_name_ids().iter().map(|&id| g(id)).collect();
+        // page 4 = the op45 checkpoint menu (b.f() -> k=4):
+        // Go Shopping / Save Game / Continue Playing
+        self.pages[4] = vec![g(18), g(19), g(20)];
         // page 6 = the Help submenu (build order verified in l() bytecode):
         // Basic/Custom Controls, Game/Classes/Weapons/Armor/Spells/Items
         self.pages[6] = [457u16, 458, 573, 522, 459, 460, 461, 462]
             .iter()
             .map(|&id| g(id))
             .collect();
-        // pages 2/3 (debug level list) and 4 (lang 18/19/20 settings) are
-        // out of slice: left empty, and rendering an empty page is a loud
-        // index panic rather than a wrong frame.
+        // pages 2/3 (the debug level list) stay out of slice: left empty,
+        // and rendering an empty page is a loud index panic rather than a
+        // wrong frame.
+    }
+
+    /// `b.f()` (b.java:2754) — the op45 checkpoint-menu native: page 4,
+    /// mode 3. No cursor reset, no table rebuild (e:[B[4] persists).
+    pub fn f_checkpoint_menu(&mut self) {
+        self.page = 4;
+        self.set_mode(3);
     }
 
     /// `b.e()` — the op44 native: menu tables, mode 3, main page.
@@ -598,6 +618,7 @@ impl Shell {
                 self.ui_model = Some(name.clone());
             }
             44 => self.e_menu(),
+            45 => self.f_checkpoint_menu(), // b.f(): the shop/save checkpoint menu
             46 => {
                 if let Some(a) = self.world.actors[op(0) as usize].as_mut() {
                     a.set_facing(op(1) as i8);
@@ -766,6 +787,11 @@ impl Shell {
     /// text-scroll timers, and the mode-15 please-wait anim step.
     pub fn tick(&mut self, dt_ms: i32) {
         if self.mode == 12 {
+            return;
+        }
+        // run() step 2: d:Z (hideNotify) parks the loop — sleep(1000) +
+        // continue; nothing ticks (and nothing repaints) until showNotify.
+        if self.paused {
             return;
         }
         // run() step 4: f.a:B == 1 -> the menu tick (marquee) REPLACES the
@@ -1028,6 +1054,32 @@ impl Shell {
         }
     }
 
+    /// `hideNotify` (b.java:3184): ignored while loading (`boolean_c()` =
+    /// m in {6,7,15}); parks the run loop (`d:Z`), and outside the boot
+    /// pages {8,21,15,10} saves the mode in `n:B`, writes `m = 22`
+    /// DIRECTLY (bypassing the `a(byte)` gate) and arms the f overlay.
+    pub fn hide_notify(&mut self) {
+        if matches!(self.mode, 6 | 7 | 15) {
+            return;
+        }
+        self.paused = true;
+        if !matches!(self.mode, 8 | 21 | 15 | 10) {
+            if self.mode != 22 {
+                self.saved_mode = self.mode;
+            }
+            self.mode = 22;
+            self.fmenu.resume_overlay = true;
+        }
+    }
+
+    /// `showNotify`: same loading guard; only unparks the loop.
+    pub fn show_notify(&mut self) {
+        if matches!(self.mode, 6 | 7 | 15) {
+            return;
+        }
+        self.paused = false;
+    }
+
     /// `keyPressed` + `keyReleased` (a tap): latch the raw keycode with the
     /// release flag set — the next frame's `b(J)` dispatches once and the
     /// tail consumes it (`p:B` -> sentinel).
@@ -1094,11 +1146,17 @@ impl Shell {
                     }
                 }
                 3 => {
+                    // 1518: `i5 = a(i5)` — the TAIL feeds the REMAPPED value
+                    // (a mode-3 FIRE over a still-open dialogue leaks a 7
+                    // into d(char) and DISMISSES it — oracle-pinned by the
+                    // shop drive's q10).
+                    i5 = self.remap(key);
                     self.menu_input(action, key);
                     self.released = true; // every mode-3 branch: p:B = 1 (2717)
                 }
                 4 | 9 | 10 | 17 | 23 => {
-                    // shared text-page input (3333): scroll + BACK
+                    // shared text-page input (3333): `i5 = a(i5)` + scroll/BACK
+                    i5 = self.remap(key);
                     if self.text_page_input(action, key, dt_ms) {
                         return; // consumed ({17,23} BACK: sentinel, p:B=0)
                     }
@@ -1132,12 +1190,14 @@ impl Shell {
                     self.released = true; // p:B = 1 (3007)
                 }
                 2 => {
-                    // the action menu (input 1429): i5 is the FULL remap;
-                    // b:B (21) pops (`f.a()Z`) — a failed pop closes the
-                    // menu + mode 0; a successful one consumes the latch.
-                    // a:B (22) is swallowed. Everything else feeds
-                    // `f.a(char)` and its activation callback `b.a(c)`.
-                    let i5r = self.remap(key);
+                    // the action menu (input 1429): i5 is the FULL remap
+                    // (assigned — the tail sees it); b:B (21) pops
+                    // (`f.a()Z`) — a failed pop closes the menu + mode 0; a
+                    // successful one consumes the latch. a:B (22) is
+                    // swallowed. Everything else feeds `f.a(char)` and its
+                    // activation callback `b.a(c)`.
+                    i5 = self.remap(key);
+                    let i5r = i5;
                     if key == 21 {
                         if !self.fmenu.back() {
                             self.fmenu.open = false;
@@ -1190,15 +1250,17 @@ impl Shell {
                 }
                 5 => {
                     // Custom Controls (input 2725): i5 = a(i5) first (the
-                    // LIVE table). Capturing (j:Z): soft keys do NOTHING
-                    // (capture stays armed); a valid key binds into the EDIT
-                    // table (raw if >= 0, else its game action), an invalid
-                    // one bounces to mode 20 — j:Z clears either way.
-                    // Browsing: BACK -> mode 3 (page still 6); UP/DOWN move
-                    // the cursor CLAMPED (no wrap); FIRE on "Save Changes"
-                    // commits f <- g + mode 3 + g() (the real save write);
-                    // FIRE elsewhere arms the capture. All branches p:B = 1.
-                    let i5r = self.remap(key);
+                    // LIVE table; assigned — the tail sees it). Capturing
+                    // (j:Z): soft keys do NOTHING (capture stays armed); a
+                    // valid key binds into the EDIT table (raw if >= 0,
+                    // else its game action), an invalid one bounces to mode
+                    // 20 — j:Z clears either way. Browsing: BACK -> mode 3
+                    // (page still 6); UP/DOWN move the cursor CLAMPED (no
+                    // wrap); FIRE on "Save Changes" commits f <- g + mode 3
+                    // + g() (the real save write); FIRE elsewhere arms the
+                    // capture. All branches p:B = 1.
+                    i5 = self.remap(key);
+                    let i5r = i5;
                     if self.capture {
                         if key != 21 && key != 22 {
                             if self.key_valid(key, i5r) {
@@ -1235,7 +1297,8 @@ impl Shell {
                     // cycle the record (wrapping) and reset the line; UP
                     // clamps at 0; DOWN only if the last paint drew the down
                     // arrow (q:Z). EVERY key is consumed directly (3276) —
-                    // mode-18 keys never reach the VM tail.
+                    // mode-18 keys never reach the VM tail (the real
+                    // `i5 = a(i5)` write is equally dead there).
                     let i5r = self.remap(key);
                     if key == 21 {
                         self.set_mode(3);
@@ -1267,6 +1330,42 @@ impl Shell {
                         self.latched = KEY_SENTINEL;
                         self.released = false;
                         return;
+                    }
+                }
+                1 => {
+                    // The SHOP (input 1359): `i5 = a(i5)` (the tail sees
+                    // it); b:B (21) CLOSES the f menu outright (f.a:B = 0 —
+                    // no hierarchical pop, unlike mode 2) + mode 3 (k:B
+                    // still 4); a:B (22) is swallowed; everything else
+                    // feeds `f.a(char)` (tabs/cursor/FIRE -> the Buy/Sell
+                    // activation). Every branch p:B = 1.
+                    i5 = self.remap(key);
+                    let i5r = i5;
+                    if key == 21 {
+                        self.fmenu.open = false;
+                        self.set_mode(3);
+                    } else if key != 22 && self.fmenu.open {
+                        let items_page = self.lang.get(27).to_string();
+                        if let Some(node) = self.fmenu.input(i5r, &items_page) {
+                            self.activate_item(node);
+                        }
+                    }
+                    self.released = true; // p:B = 1 (1421)
+                }
+                22 => {
+                    // The interrupt screen (input 3565): a:B (22, "YES") ->
+                    // restore the saved mode (through the setter — the op73
+                    // gate applies), clear n:B + the f overlay, consume;
+                    // b:B (21, "EXIT") -> c() (falls to the tail).
+                    if key == 22 {
+                        self.set_mode(self.saved_mode);
+                        self.saved_mode = -1;
+                        self.fmenu.resume_overlay = false;
+                        self.latched = KEY_SENTINEL;
+                        self.released = false;
+                        return;
+                    } else if key == 21 {
+                        self.exit_c();
                     }
                 }
                 _ => {}
@@ -1653,6 +1752,23 @@ impl Shell {
         self.lang.reverse(name).map(|id| 0xF000 | i32::from(id))
     }
 
+    /// `e.b(String)` — resolve a display name to its ITEM KIND: the scan
+    /// order is weapons (4) -> 0, consumables (2) -> 2, armor (1) -> 1;
+    /// -1 when absent (the shop activation still charges/pays, faithful).
+    fn kind_by_name(&self, name: &str) -> i32 {
+        let Some(n) = self.name_ref(name) else {
+            return -1;
+        };
+        for (subtype, kind) in [(4u8, 0i32), (2, 2), (1, 1)] {
+            for row in self.vm.tables.rows(subtype) {
+                if row.len() > 1 && row[0] != 0 && row[1] == n {
+                    return kind;
+                }
+            }
+        }
+        -1
+    }
+
     /// `e.int_arr_a(String)` — resolve a display name to its stat row: the
     /// table scan order is weapons (4), consumables (2), armor (1), classes
     /// (5), spells (8); unwritten rows (id 0) are the Java nulls, skipped.
@@ -1861,6 +1977,101 @@ impl Shell {
         self.world.dirty = true; // var_boolean_n = true (the baked-over offscreen)
     }
 
+    /// `b.o()` (javap 10613) — build the two-tab SHOP menu: Buy from the
+    /// subtype-7 flat [kind,id] pair list (full prices), Sell from the
+    /// player's inventory tags (quarter prices, `>> 2`). Weapon/armor nodes
+    /// carry a rating desc and the class-allows flag (`c.b:Z` — CFR shows
+    /// its phantom `new c` again; javap writes the SAME node); consumables
+    /// keep the field-init `enabled`. Opens the f menu (bar 17, icons
+    /// 15/16, status = the gold line) and dirties the base cache. The
+    /// CALLER sets mode 1.
+    fn o_shop(&mut self) {
+        let g = |id: u16| self.lang.get(id).to_string();
+        let gold_word = g(38);
+        let mut items: Vec<MenuItem> = vec![
+            MenuItem::new(g(36), None, false), // Buy
+            MenuItem::new(g(37), None, false), // Sell
+        ];
+        let (buy, sell) = (0usize, 1usize);
+        // One stock/inventory entry; `quarter` halves twice for the Sell tab.
+        let add = |items: &mut Vec<MenuItem>,
+                   shell: &Shell,
+                   tab: usize,
+                   kind: i32,
+                   id: i32,
+                   quarter: bool| {
+            let (subtype, price_col, desc) = match kind {
+                0 => (4u8, 7usize, Some((432u16, 3usize))),
+                1 => (1, 9, Some((444, 4))),
+                2 => (2, 13, None),
+                // subtype-3 stock never appears in shipped data
+                3 => unimplemented!("shop flat7 kind 3 (subtype-3 stock) not in shipped data"),
+                k => panic!("shop stock kind {k} out of range"),
+            };
+            let row = shell
+                .vm
+                .tables
+                .row(subtype, id)
+                .expect("shop stock row")
+                .to_vec();
+            let price = if quarter {
+                row[price_col] >> 2
+            } else {
+                row[price_col]
+            };
+            let label = format!("{} : {} {}", shell.item_name(&row), price, gold_word);
+            let mut item = MenuItem::new(
+                label,
+                desc.map(|(lid, col)| format!("{}: {}", shell.lang.get(lid), row[col])),
+                false,
+            );
+            if matches!(kind, 0 | 1) {
+                // c.b:Z = h.a(j, kind, row)Z — red + fire-dead when the
+                // class may not use it (or there is NO player: h.boolean_a
+                // returns false for j == null — oracle-observed as an
+                // all-red Buy tab on a menu-only shop).
+                item.enabled = shell.world.actors[0]
+                    .as_ref()
+                    .is_some_and(|p| p.class_allows_item(kind, &row, &shell.vm.tables));
+            }
+            item.parent = Some(tab);
+            items.push(item);
+            let node = items.len() - 1;
+            items[tab].children.push(node);
+        };
+        // BUY: the subtype-7 flat pair list, -1 terminated.
+        let flat = self.vm.flat7.clone();
+        let mut n = 0;
+        while flat[n] != -1 {
+            let kind = flat[n];
+            let id = flat[n + 1];
+            n += 2;
+            add(&mut items, self, buy, kind, id, false);
+        }
+        // SELL: the inventory tags (kind << 8 | id), zero-terminated.
+        if let Some(p) = self.world.actors[0].as_ref() {
+            let tags: Vec<i32> = p
+                .var_int_arr_k
+                .iter()
+                .take_while(|&&t| t != 0)
+                .copied()
+                .collect();
+            for tag in tags {
+                add(&mut items, self, sell, (tag >> 8) & 0xFF, tag & 0xFF, true);
+            }
+        }
+        let status = format!("{} : {}", gold_word, self.world.gold);
+        self.fmenu.open(
+            vec![17, 15, 16],
+            items,
+            vec![buy, sell],
+            Some(status),
+            &self.masks,
+            &self.assets,
+        );
+        self.world.dirty = true; // n:Z
+    }
+
     /// `b.a(c)` (b.java:2763) — the menu activation callback, dispatched on
     /// the fired node's PARENT page name: Buy/Sell (lang 36/37) is the shop
     /// (out of slice, loud); the Armor top page (lang 26 — descending into a
@@ -1875,8 +2086,71 @@ impl Shell {
         let page_name = self.fmenu.items[parent].name.clone();
         let name = self.fmenu.items[node].name.clone();
         let is = |id: u16| page_name == self.lang.get(id);
-        if is(36) || is(37) {
-            panic!("the shop Buy/Sell activation (o()) is out of slice");
+        if is(36) {
+            // BUY (a(c) head): parse the price out of the LABEL ("Name : 25
+            // Gold"); a parse failure is the original's System.exit(1).
+            let colon = name.find(':').expect("shop label has ' : '");
+            let start = colon + 2;
+            let end = name[start..].find(' ').expect("price ends at a space") + start;
+            let price: i32 = name[start..end]
+                .parse()
+                .expect("IsoMap::menuSelected() buy — the original exits here");
+            if self.world.gold >= price {
+                self.world.gold -= price;
+                let item = name[..start - 3].to_string();
+                let kind = self.kind_by_name(&item);
+                let row = self.row_by_name(&item);
+                if let Some(row) = row {
+                    if self.world.actors[0].is_some() {
+                        // h.a(j,kind,row)V = the force=false equip, then the
+                        // FULL o() rebuild (cursor/page reset — faithful).
+                        let tables = &self.vm.tables;
+                        if let Some(p) = self.world.actors[0].as_mut() {
+                            p.equip(kind, &row, false, tables);
+                        }
+                        self.o_shop();
+                    }
+                }
+            }
+            // c2.a:Z = false lands on the pre-rebuild node (a no-op when the
+            // rebuild replaced the arena); the title always refreshes.
+            if let Some(item) = self.fmenu.items.get_mut(node) {
+                item.active = false;
+            }
+            self.fmenu.status = Some(format!("{} : {}", self.lang.get(38), self.world.gold));
+            return;
+        }
+        if is(37) {
+            // SELL: pay the label's quarter price, remove the item (h.b —
+            // disarm/shift/re-arm best/re-derive) and the NODE (with the
+            // f.a('\u{3}') cursor-up fix when it was last in the page).
+            let colon = name.find(':').expect("shop label has ' : '");
+            let start = colon + 2;
+            let end = name[start..].find(' ').expect("price ends at a space") + start;
+            let price: i32 = name[start..end]
+                .parse()
+                .expect("IsoMap::menuSelected() //sell — the original exits here");
+            if self.world.actors[0].is_some() {
+                let item = name[..start - 3].to_string();
+                let kind = self.kind_by_name(&item);
+                if let Some(row) = self.row_by_name(&item) {
+                    let tables = &self.vm.tables;
+                    if let Some(p) = self.world.actors[0].as_mut() {
+                        p.unequip(kind, &row, tables);
+                    }
+                }
+                let siblings = &self.fmenu.items[parent].children;
+                if siblings.last() == Some(&node) {
+                    let items_page = self.lang.get(27).to_string();
+                    self.fmenu.input(3, &items_page); // f.a('\u{3}') = UP
+                }
+                let siblings = &mut self.fmenu.items[parent].children;
+                siblings.retain(|&c| c != node); // removeElement
+            }
+            self.fmenu.items[node].active = false;
+            self.world.gold += price;
+            self.fmenu.status = Some(format!("{} : {}", self.lang.get(38), self.world.gold));
+            return;
         }
         if is(26) {
             self.fmenu.items[node].active = false;
@@ -2106,9 +2380,13 @@ impl Shell {
         } else if is(462) {
             self.enter_stat_table(462); // Items Overview -> c()
         } else if is(18) {
-            self.pending_leave = Some(Leave::Mode(1)); // Go Shopping
+            // Go Shopping (2470): o() builds the Buy/Sell menu, mode 1.
+            self.o_shop();
+            self.set_mode(1);
         } else if is(20) {
-            self.pending_leave = Some(Leave::Mode(0)); // Continue Playing
+            // Continue Playing (2575): a((byte)0) only — no dirty write
+            // (o() already dirtied the base cache if the shop was opened).
+            self.set_mode(0);
         } else if page == 1 {
             // k==1 class fire (2593 — checked BEFORE the Exit compare):
             // k(); r:B = 0; mode 6; null actors; the loader on the HARDCODED
@@ -2193,6 +2471,8 @@ impl Shell {
             (5, _) => Some(Screen::ControlsRedefine),
             (20, _) => Some(Screen::KeyTaken),
             (18, _) => Some(Screen::StatTable),
+            (1, _) => Some(Screen::Shop),
+            (22, _) => Some(Screen::Interrupt),
             _ => None,
         }
     }
@@ -2236,6 +2516,23 @@ impl Shell {
     /// The lang table — test/corpus-tooling access.
     pub fn lang(&self) -> &formats::lang::Lang {
         &self.lang
+    }
+
+    /// The subtype-7 flat pair list (`e.a(7,0)` — the shop stock) — test
+    /// access.
+    pub fn flat7(&self) -> &[i32] {
+        &self.vm.flat7
+    }
+
+    /// The `setflat` injection: write the shop stock pairs + the -1
+    /// terminator into `e.f:[I` (mirrors `Instrument.setFlat`).
+    pub fn set_flat7(&mut self, vals: &[i32]) {
+        for (i, &v) in vals.iter().enumerate().take(self.vm.flat7.len()) {
+            self.vm.flat7[i] = v;
+        }
+        if vals.len() < self.vm.flat7.len() {
+            self.vm.flat7[vals.len()] = -1;
+        }
     }
 
     /// Build all six overview tables fresh (corpus/regen tooling; bypasses
@@ -2478,7 +2775,27 @@ impl Shell {
                     self.topic == 573,
                 );
             }
-            2 => {} // b.paint case 2 draws NOTHING (goto 5590) — f paints below
+            // b.paint cases 1 and 2 draw NOTHING (1147/1150 -> 5590) — the
+            // open f menu (the shop / action menu) paints in the tail below.
+            1 | 2 => {}
+            22 => {
+                // The interrupt screen: lang571 "Resume game?" centered both
+                // axes in LARGE bold, "EXIT" (lang22) bottom-left, "YES"
+                // (lang426) right-aligned by the PRE-uppercase width. The
+                // pre-lang branch (start.txt segments 2/4/3) only fires for
+                // an interrupt before the lang load — unreachable outside
+                // the guarded boot modes, but transcribed faithfully.
+                let (center, exit_label, yes_pre) = if self.lang.get(571).is_empty() {
+                    (self.start_txt(2), self.start_txt(4), self.start_txt(3))
+                } else {
+                    (
+                        self.lang.get(571).to_string(),
+                        self.lang.get(22).to_string(),
+                        self.lang.get(426).to_string(),
+                    )
+                };
+                crate::paint::paint_interrupt(&mut fb, &self.masks, &center, &exit_label, &yes_pre);
+            }
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \
                  LCD keeps the last frame while c() destroys the MIDlet)"
