@@ -198,6 +198,12 @@ pub struct Shell {
     stat_w: usize,
     /// `q:Z` — "the down arrow was drawn" paint side effect; gates DOWN.
     q_flag: bool,
+    /// The first unported script opcode hit (a content boundary, e.g. op47
+    /// = the L01 sewer-maze generator). The real game would run it; the port
+    /// records it and STOPS the VM gracefully instead of panicking, so a
+    /// frontend can show an honest "unported content" screen rather than a
+    /// hard crash. `None` while inside the ported slice.
+    unported_op: Option<u8>,
     /// `n:B` — the mode saved by hideNotify (the interrupt screen's YES
     /// restores it); -1 idle.
     saved_mode: i8,
@@ -282,6 +288,7 @@ impl Shell {
             stat_v: 0,
             stat_w: 0,
             q_flag: false, // <clinit>
+            unported_op: None,
             saved_mode: -1,
             paused: false,
             level_script: String::new(),
@@ -738,7 +745,16 @@ impl Shell {
                 self.loader(&name).expect("op29 script chain");
             }
             72 => {} // free cached graphics: no resource effect (validated M7)
-            other => unimplemented!("script op{other} not wired to b (out of slice)"),
+            other => {
+                // An unported content opcode (e.g. op47 = the L01 sewer-maze
+                // generator, reached by chaining to l01_1r.scr). Record the
+                // boundary and HALT the VM instead of panicking — a frontend
+                // shows an honest stop; the parity drives never reach here,
+                // so an unexpected op still surfaces (as a stalled VM) rather
+                // than corrupting a gated frame.
+                self.unported_op = Some(other);
+                self.vm.halt();
+            }
         }
     }
 
@@ -2521,6 +2537,17 @@ impl Shell {
         self.mode
     }
 
+    /// The unported content boundary the VM hit, if any (a frontend renders
+    /// an honest stop screen instead of a broken world). `op47` is the L01
+    /// sewer-maze generator (`b.a([I,[I,I,I)`, script `l01_1r`); the maze
+    /// subsystem is the next porting milestone.
+    pub fn unported_boundary(&self) -> Option<String> {
+        self.unported_op.map(|op| match op {
+            47 => "Reached the sewer maze — not ported yet (op47).".to_string(),
+            other => format!("Reached unported content (script op{other})."),
+        })
+    }
+
     /// The wrapped text-page model (`a:[Ljava/util/Vector;`) — the fixed-
     /// scroll anchor tests derive the mask corpus from it.
     pub fn text_pages(&self) -> &[Vec<String>] {
@@ -2559,6 +2586,13 @@ impl Shell {
         let overlay = formats::parse_lang_file(&bytes, id as u8)
             .unwrap_or_else(|| panic!("unknown lang table id {id}"));
         self.lang.set_overlay(overlay);
+    }
+
+    /// Run the loader on a script (a walked-over exit trigger's op29 chain).
+    /// Test/tooling access — the maze-boundary test drives the room
+    /// transition without walking the player to the exit cell.
+    pub fn force_load_for_test(&mut self, name: &str) {
+        self.loader(name).expect("test loader");
     }
 
     /// The `setflat` injection: write the shop stock pairs + the -1

@@ -93,10 +93,16 @@ async fn main() {
             shell.release();
         }
 
-        // run(): dt is wall-clock; clamp a stall (window drag etc.) so one
-        // monster tick can't fast-forward timers unrealistically.
-        let dt = (get_frame_time() * 1000.0) as i32;
-        shell.tick(dt.clamp(1, 250));
+        // At an unported content boundary (e.g. op47, the sewer maze) the
+        // VM has halted: keep painting the last live frame, but stop ticking
+        // gameplay and show an honest overlay instead of a hard crash.
+        let boundary = shell.unported_boundary();
+        if boundary.is_none() {
+            // run(): dt is wall-clock; clamp a stall (window drag etc.) so
+            // one monster tick can't fast-forward timers unrealistically.
+            let dt = (get_frame_time() * 1000.0) as i32;
+            shell.tick(dt.clamp(1, 250));
+        }
 
         let fb = shell.render().expect("paint");
         let px = fb.pixels();
@@ -115,16 +121,39 @@ async fn main() {
         clear_background(BLACK);
         let scale = (screen_width() / LCD_W as f32).min(screen_height() / LCD_H as f32);
         let (dw, dh) = (LCD_W as f32 * scale, LCD_H as f32 * scale);
+        let (ox, oy) = ((screen_width() - dw) / 2.0, (screen_height() - dh) / 2.0);
         draw_texture_ex(
             &texture,
-            (screen_width() - dw) / 2.0,
-            (screen_height() - dh) / 2.0,
+            ox,
+            oy,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(vec2(dw, dh)),
                 ..Default::default()
             },
         );
+        if let Some(msg) = boundary {
+            // a dim scrim + the honest boundary message over the last frame
+            draw_rectangle(ox, oy, dw, dh, Color::new(0.0, 0.0, 0.0, 0.72));
+            let lines = [
+                msg.as_str(),
+                "The engine is complete; this level room",
+                "is the next thing to port.",
+                "",
+                "Esc to quit.",
+            ];
+            let fs = (dh * 0.045).max(14.0);
+            for (i, line) in lines.iter().enumerate() {
+                let d = measure_text(line, None, fs as u16, 1.0);
+                draw_text(
+                    line,
+                    ox + (dw - d.width) / 2.0,
+                    oy + dh * 0.4 + i as f32 * fs * 1.4,
+                    fs,
+                    WHITE,
+                );
+            }
+        }
         next_frame().await;
     }
 }

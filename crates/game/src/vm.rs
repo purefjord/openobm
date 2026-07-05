@@ -362,6 +362,12 @@ impl GameVm {
     /// op11 waits, op60, op2 returns, and the local e-state opcodes (14/21/28/
     /// 52/58/67) are applied internally and still surfaced for tracing; the
     /// `b`-side opcodes are the caller's to apply.
+    /// Drop the running script (the shell halts the VM at an unported
+    /// content boundary so a frontend can stop gracefully).
+    pub fn halt(&mut self) {
+        self.exec = None;
+    }
+
     pub fn tick(
         &mut self,
         dt_ms: i32,
