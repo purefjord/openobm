@@ -27,6 +27,12 @@ impl Fb {
         self.px[(y * self.w + x) as usize]
     }
 
+    /// The raw row-major 0xRRGGBB pixels (the interactive frontend blits
+    /// the top LCD rows from here without per-pixel calls).
+    pub fn pixels(&self) -> &[u32] {
+        &self.px
+    }
+
     #[inline]
     pub fn set(&mut self, x: i32, y: i32, rgb: u32) {
         if x < 0 || y < 0 || x >= self.w || y >= self.h {

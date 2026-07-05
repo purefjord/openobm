@@ -9,8 +9,20 @@ description = "The b.java shell: mode state machine, main loop, menus — valida
 [lints]
 workspace = true
 
+# The playable window (`play`) is opt-in like render's map-view: the default
+# build stays headless (no GPU/display needed for the parity suites).
+[features]
+default = []
+interactive = ["dep:macroquad"]
+
+[[bin]]
+name = "play"
+path = "src/bin/play.rs"
+required-features = ["interactive"]
+
 [dependencies]
 formats.workspace = true
 render.workspace = true
 anyhow.workspace = true
 png = "0.17"
+macroquad = { version = "0.4", optional = true }
