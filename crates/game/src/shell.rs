@@ -89,19 +89,22 @@ pub enum Leave {
 /// A readable view of the front-end screens for tests (`b.m:B` + `k:B`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
-    Title,        // m=8 (key-gate set)
-    MainMenu,     // m=3, k=0
-    ClassSelect,  // m=3, k=1
-    HelpTopics,   // m=3, k=6 (the Help submenu carousel)
-    ExitDialog,   // m=19
-    ControlsPage, // m=17 (Basic Controls text page)
-    OverviewPage, // m=23 (Game Overview text page)
-    AboutRoll,    // m=4 (animated credits; gated at a fixed-scroll shot)
-    PleaseWait,   // m=15 (level-load anim — visual-only)
-    IntroText,    // m=10 (the level intro page, auto-scrolls into mode 0)
-    Gameplay,     // m=0
-    Death,        // m=11 (the player-death "Continue?" screen)
-    ActionMenu,   // m=2 (the f.java Attack/Armor/Items/Stats menu)
+    Title,            // m=8 (key-gate set)
+    MainMenu,         // m=3, k=0
+    ClassSelect,      // m=3, k=1
+    HelpTopics,       // m=3, k=6 (the Help submenu carousel)
+    ExitDialog,       // m=19
+    ControlsPage,     // m=17 (Basic Controls text page)
+    OverviewPage,     // m=23 (Game Overview text page)
+    AboutRoll,        // m=4 (animated credits; gated at a fixed-scroll shot)
+    PleaseWait,       // m=15 (level-load anim — visual-only)
+    IntroText,        // m=10 (the level intro page, auto-scrolls into mode 0)
+    Gameplay,         // m=0
+    Death,            // m=11 (the player-death "Continue?" screen)
+    ActionMenu,       // m=2 (the f.java Attack/Armor/Items/Stats menu)
+    GameSaved,        // m=13 ("Game Saved" + press any key)
+    LoadConfirm,      // m=14 ("Load Saved Game?" YES/NO)
+    OverwriteConfirm, // m=16 ("Saved Game Exists" / "Overwrite?" YES/NO)
 }
 
 pub struct Shell {
@@ -150,6 +153,16 @@ pub struct Shell {
     /// The key bindings `g:[B` (quick-health, quick-magika, toggle-weapon;
     /// defaults `f:[B = {55, 57, 51}` — keys 7/9/3).
     bindings: [i32; 3],
+    /// `var_java_lang_String_c` — the current level's script path (set by the
+    /// loader; the save writes it as the record "name", the load re-runs the
+    /// loader on it).
+    level_script: String,
+    /// `var_boolean_o` — the sound flag (persisted; the Sound toggle is out of
+    /// slice, so it stays false).
+    bool_o: bool,
+    /// The `ESO` RecordStore, modeled as the in-memory record-1 blob. `None` =
+    /// no save (`boolean_b()` false — the wiped-RMS baseline until `g()`).
+    save_slot: Option<Vec<u8>>,
     /// `a:Lf;` — the f.java in-game menu system (the mode-2 action menu).
     pub fmenu: FMenu,
     /// `b.var_c_a` / `var_c_b` — the active-weapon / active-spell menu nodes
@@ -210,6 +223,9 @@ impl Shell {
             exited: false,
             pw_acc: 0,
             bindings: [55, 57, 51],
+            level_script: String::new(),
+            bool_o: false,
+            save_slot: None,
             fmenu: FMenu::new(menu_cml),
             active_weapon_item: None,
             active_spell_item: None,
@@ -226,6 +242,7 @@ impl Shell {
     /// (empty bar), visual-only.
     fn loader(&mut self, name: &str) -> anyhow::Result<()> {
         self.set_mode(6);
+        self.level_script = name.to_string(); // var_java_lang_String_c
         self.page = -1;
         self.latched = KEY_SENTINEL;
         self.progress = -1;
@@ -309,13 +326,23 @@ impl Shell {
         build_pages(&self.masks, text, &self.version)
     }
 
-    /// `b.l()` — build the menu page table. Page 0 (main) has no "Continue":
-    /// `b()Z` (RecordStore probe) is fenced `false` on the wiped-RMS baseline.
-    /// Page 1 (class select) walks the persistent script class table.
+    /// `b.l()` — build the menu page table. Page 0 (main) and page 5 (in-game
+    /// pause) insert "Load Game" (lang 3) right after "New Game" when a save
+    /// exists (`b.boolean_b()`, l() 262/275). Page 1 (class select) walks the
+    /// persistent script class table.
     fn l(&mut self) {
         let g = |id: u16| self.lang.get(id).to_string();
-        self.pages[0] = vec![g(2), g(456), g(6), g(22)];
-        self.pages[5] = vec![g(21), g(2), g(456), g(6), g(22)];
+        let has_save = self.has_save();
+        self.pages[0] = if has_save {
+            vec![g(2), g(3), g(456), g(6), g(22)]
+        } else {
+            vec![g(2), g(456), g(6), g(22)]
+        };
+        self.pages[5] = if has_save {
+            vec![g(21), g(2), g(3), g(456), g(6), g(22)]
+        } else {
+            vec![g(21), g(2), g(456), g(6), g(22)]
+        };
         self.pages[1] = self.vm.class_name_ids().iter().map(|&id| g(id)).collect();
         // page 6 = the Help submenu (build order verified in l() bytecode):
         // Basic/Custom Controls, Game/Classes/Weapons/Armor/Spells/Items
@@ -1075,6 +1102,41 @@ impl Shell {
                     }
                     self.released = true; // p:B = 1 (1510)
                 }
+                13 => {
+                    // Game Saved (input 3062): ANY accepted key -> mode 3.
+                    self.set_mode(3);
+                    self.released = true;
+                }
+                14 => {
+                    // Load Saved Game? (input 3015): a:B (22) YES -> h() load;
+                    // b:B (21) NO -> p() + mode 3 + e[0]=1 (cursor back on the
+                    // "Load Game" item) + consume.
+                    if key == 22 {
+                        self.load_game().expect("save load");
+                    } else if key == 21 {
+                        self.p_reset();
+                        self.cursors[0] = 1; // e[0] = 1 (3048, literal)
+                        self.set_mode(3);
+                        self.latched = KEY_SENTINEL;
+                        self.released = false;
+                        return;
+                    }
+                    self.released = true;
+                }
+                16 => {
+                    // Saved Game Exists / Overwrite? (input 3074): a:B (22)
+                    // YES -> class select (k=1) + mode 3 + consume; b:B (21)
+                    // NO -> mode 3 + consume.
+                    if key == 22 {
+                        self.page = 1;
+                        self.set_mode(3);
+                    } else if key == 21 {
+                        self.set_mode(3);
+                    }
+                    self.latched = KEY_SENTINEL;
+                    self.released = false;
+                    return;
+                }
                 _ => {}
             }
         }
@@ -1722,6 +1784,61 @@ impl Shell {
         self.page = if self.left_gameplay { 5 } else { 0 };
     }
 
+    /// `b.g()` (b.java:2845) — write the `ESO` record from the live state
+    /// (progress flags + sound flag + the level-script name + the player
+    /// blob, `active` bits recomputed) into the in-memory save slot.
+    fn save_game(&mut self) {
+        let blob = crate::save::build_save(
+            self.bindings,
+            self.bool_o,
+            &self.level_script,
+            self.world.actors[0].as_ref(),
+            self.world.gold,
+            &self.vm.tables,
+        );
+        self.save_slot = Some(blob);
+    }
+
+    /// `b.boolean_b()` (b.java:2875) — is there a saved player? The `l()` menu
+    /// build gates "Load Game" / the New Game overwrite confirm on it.
+    fn has_save(&self) -> bool {
+        crate::save::has_save(self.save_slot.as_deref())
+    }
+
+    /// `b.h()` = `b.b(true)` (b.java:2900) — load the `ESO` record: restore the
+    /// progress + sound flags, mode 6, then (if a player is stored) re-run the
+    /// loader on the saved level-script name and install the restored player
+    /// into slot 0. The subsequent level choreography spawns the world around
+    /// the reused `var_j_a`, exactly like a fresh class fire.
+    fn load_game(&mut self) -> anyhow::Result<()> {
+        let Some(blob) = self.save_slot.clone() else {
+            return Ok(());
+        };
+        let save = formats::parse_save(&blob).map_err(|e| anyhow::anyhow!("save parse: {e}"))?;
+        self.bindings = [
+            i32::from(save.flags[0]),
+            i32::from(save.flags[1]),
+            i32::from(save.flags[2]),
+        ];
+        self.bool_o = save.bool_o != 0;
+        self.set_mode(6);
+        if let Some(sp) = save.player {
+            let name = String::from_utf8_lossy(&sp.name).into_owned();
+            // b.var_int_b = the saved gold (h.a(byte[],int) writes it back).
+            self.world.gold = i32::from(sp.actor.global_int_b);
+            let player = crate::save::restore_actor(&sp.actor, &mut self.models, &self.vm.tables);
+            self.loader(&name)?;
+            // var_j_a = var_j_arr_a[0] = the restored actor (survives the
+            // loader's per-level reset, like the class-fire player reuse).
+            self.world.actors[0] = Some(player);
+            self.world.actor_anims[0] = Some(formats::anim::Anim::from_cml(
+                &self.models.get("/oh_pc.cml").cml,
+            ));
+            self.world.player_persists = true;
+        }
+        Ok(())
+    }
+
     /// `b.c()` (javap 16071) — the YES/exit native: mode 12 (terminal — the
     /// `a(byte)` setter latches there and `run()` exits its loop), repaint,
     /// a 2s real-time sleep, then `MIDlet.notifyDestroyed()` (on FreeJ2ME:
@@ -1783,15 +1900,24 @@ impl Shell {
         if item.starts_with(self.lang.get(4)) && !self.lang.get(4).is_empty() {
             panic!("Sound toggle (o:Z + l() + g()) not ported (out of slice)");
         } else if is(19) {
-            self.pending_leave = Some(Leave::Mode(13)); // Save Game
+            // Save Game (2093): g() writes the record, e[k]=2, mode 13.
+            self.save_game();
+            self.cursors[self.page as usize] = 2;
+            self.set_mode(13);
         } else if is(3) {
-            self.pending_leave = Some(Leave::Mode(14)); // Load Game
+            // Load Game (2118): the mode-14 "Load Saved Game?" confirm.
+            self.set_mode(14);
         } else if is(21) {
-            self.pending_leave = Some(Leave::Mode(0)); // Continue (resume)
+            self.set_mode(0); // Continue (resume in-game pause)
+            self.world.dirty = true;
         } else if is(2) {
-            // New Game: b()Z (has-save) fenced false -> class select, never
-            // the mode-16 overwrite confirm on the wiped-RMS baseline
-            self.page = 1;
+            // New Game (2143): if a save exists, the mode-16 overwrite
+            // confirm; else straight to class select.
+            if self.has_save() {
+                self.set_mode(16);
+            } else {
+                self.page = 1;
+            }
         } else if is(6) {
             self.set_mode(4); // About -> the animated credits roll
         } else if is(456) {
@@ -1849,6 +1975,9 @@ impl Shell {
             (0, _) => Some(Screen::Gameplay),
             (11, _) => Some(Screen::Death),
             (2, _) => Some(Screen::ActionMenu),
+            (13, _) => Some(Screen::GameSaved),
+            (14, _) => Some(Screen::LoadConfirm),
+            (16, _) => Some(Screen::OverwriteConfirm),
             _ => None,
         }
     }
@@ -1887,6 +2016,20 @@ impl Shell {
     /// tests arm items through the same rows the game reads).
     pub fn tables(&self) -> &formats::Tables {
         &self.vm.tables
+    }
+
+    /// Invoke `b.g()` and return the written `ESO` blob — the save-parity
+    /// gate compares this to the real game's captured record.
+    pub fn save_and_get_blob(&mut self) -> Vec<u8> {
+        self.save_game();
+        self.save_slot.clone().expect("save wrote a blob")
+    }
+
+    /// Firing "Save Game" (`b.g()` + mode 13) — the page-4 in-game menu path
+    /// is script-gated (op45), so the m13 parity test enters it directly.
+    pub fn enter_save_screen_for_test(&mut self) {
+        self.save_game();
+        self.set_mode(13);
     }
 
     /// The text-page scroll `g:S` — read/set for the fixed-scroll anchors
@@ -2035,6 +2178,24 @@ impl Shell {
             ),
             19 => paint_exit_dialog(&mut fb, &self.masks),
             11 => crate::paint::paint_death(&mut fb, &self.masks),
+            13 => crate::paint::paint_game_saved(
+                &mut fb,
+                &self.masks,
+                self.lang.get(450),
+                self.lang.get(401),
+            ),
+            14 => crate::paint::paint_yesno(
+                &mut fb,
+                &self.masks,
+                self.lang.get(451), // "Load Saved Game?"
+                None,
+            ),
+            16 => crate::paint::paint_yesno(
+                &mut fb,
+                &self.masks,
+                self.lang.get(455),       // "Saved Game Exists"
+                Some(self.lang.get(464)), // "Overwrite?"
+            ),
             2 => {} // b.paint case 2 draws NOTHING (goto 5590) — f paints below
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \

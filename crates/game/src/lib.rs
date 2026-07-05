@@ -13,6 +13,7 @@ pub mod fb;
 pub mod fmenu;
 pub mod gpaint;
 pub mod paint;
+pub mod save;
 pub mod script;
 pub mod shell;
 pub mod text;

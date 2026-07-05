@@ -603,6 +603,138 @@ fn action_menu_at_parity() {
     assert!(!s.fmenu.open);
 }
 
+/// SAVE PARITY (the write path): drive to the L01 second-dialogue hold and
+/// invoke `b.g()` (`save_and_get_blob`); the shell's ESO record must equal
+/// the REAL game's captured blob byte-for-byte (`eso_l01_dialogue2.bin`,
+/// which `oracle/to_save.txt` captured via the callsave native at the SAME
+/// hold). Every field feeding the save (progress flags, level-script name,
+/// the player actor with its recomputed item `active` bits, gold) is settled
+/// there, so one byte fails this. Closes the M9 loop from BOTH ends: the
+/// deserializer round-trips a real blob (`save_roundtrips_the_real_blob`),
+/// and our serializer reproduces one from live state.
+#[test]
+fn save_blob_matches_the_real_game() {
+    let mut s = shell_at_dialogue2();
+    let blob = s.save_and_get_blob();
+    let real = std::fs::read(root().join("tests/fixtures/oracle/eso_l01_dialogue2.bin"))
+        .expect("the captured real blob");
+    assert_eq!(
+        blob, real,
+        "the shell's b.g() save differs from the real game's ESO record"
+    );
+}
+
+/// The save/load CONFIRM screens at screenshot parity. The three paints read
+/// NO world state (like the exit/death dialogs), so a fresh boot with a save
+/// present renders them exactly. We reach them the same way the real captures
+/// did: save at the L01 hold (so `boolean_b()` is true), open the in-game
+/// pause menu, and pick New Game -> m16 "Saved Game Exists / Overwrite?" and
+/// Load Game -> m14 "Load Saved Game?". The real fixtures were shot from the
+/// MAIN menu, but the paints are menu-independent, so they match.
+#[test]
+fn save_load_confirm_screens_at_parity() {
+    let assert_frame = |s: &mut Shell, fixture: &str, label: &str| {
+        let fb = s.render().expect("confirm paint");
+        let real =
+            game::fb::Fb::load_png(&root().join(format!("tests/fixtures/oracle/frames/{fixture}")))
+                .unwrap();
+        let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+        if bad != 0 {
+            let out = root().join("target/parity");
+            std::fs::create_dir_all(&out).unwrap();
+            fb.save_png(&out.join(format!("{label}_rust.png"))).unwrap();
+            diff.save_png(&out.join(format!("{label}_diff.png")))
+                .unwrap();
+        }
+        assert_eq!(bad, 0, "{label} differs from the real shot");
+    };
+    let mut s = shell_at_dialogue2();
+    let _ = s.save_and_get_blob(); // boolean_b() true from here on
+                                   // Pause menu (key 21): with a save, page 5 =
+                                   // [Continue, New Game, Load Game, Help, About, Exit].
+    tap(&mut s, 21);
+    assert_eq!(s.mode(), 3);
+    // New Game (index 1) -> the overwrite confirm.
+    tap(&mut s, 54);
+    tap(&mut s, 53);
+    assert_eq!(s.screen(), Some(Screen::OverwriteConfirm));
+    assert_frame(&mut s, "overwrite_confirm.png", "overwrite");
+    tap(&mut s, 21); // NO -> back to the pause menu, cursor still on New Game
+    assert_eq!(s.mode(), 3);
+    // Load Game is one item right of New Game (index 1 -> 2).
+    tap(&mut s, 54);
+    tap(&mut s, 53);
+    assert_eq!(s.screen(), Some(Screen::LoadConfirm));
+    assert_frame(&mut s, "load_confirm.png", "load");
+}
+
+/// The "Game Saved" screen (m13) at screenshot parity: fire Save Game (only
+/// reachable via the script-gated page-4 in-game menu in normal play, so the
+/// test drives it directly through the menu machinery by seeding page 4).
+#[test]
+fn game_saved_screen_at_parity() {
+    let mut s = shell_at_dialogue2();
+    s.enter_save_screen_for_test(); // g() + mode 13
+    assert_eq!(s.screen(), Some(Screen::GameSaved));
+    let fb = s.render().expect("game-saved paint");
+    let real = game::fb::Fb::load_png(&root().join("tests/fixtures/oracle/frames/game_saved.png"))
+        .unwrap();
+    let (diff, bad) = fb.diff_region(&real, game::paint::LCD_H);
+    if bad != 0 {
+        let out = root().join("target/parity");
+        std::fs::create_dir_all(&out).unwrap();
+        fb.save_png(&out.join("game_saved_rust.png")).unwrap();
+        diff.save_png(&out.join("game_saved_diff.png")).unwrap();
+    }
+    assert_eq!(bad, 0, "the Game Saved screen differs from the real shot");
+}
+
+/// SAVE -> LOAD through the menu: save at the hold, corrupt the live player,
+/// open the pause menu, pick "Load Game" -> confirm YES. The load re-runs the
+/// loader on the stored script name and installs the RESTORED player as
+/// `var_j_a` (slot 0). Assert the restored player state right after the load
+/// (mode 6, before the L01 choreography re-equips) matches the save: the same
+/// class/stats/health and the saved inventory tags. (A save-load-save byte
+/// round-trip would NOT hold — the reloaded level re-runs its equip opcodes on
+/// the reused player, adding items, exactly as the real game does.)
+#[test]
+fn save_then_load_restores_the_player() {
+    let mut s = shell_at_dialogue2();
+    let saved = s.save_and_get_blob();
+    let want = formats::parse_save(&saved).unwrap().player.unwrap().actor;
+    // Corrupt the live player so a stale-state load would be visible.
+    {
+        let p = s.world.actors[0].as_mut().unwrap();
+        p.var_short_q = 3;
+        p.var_short_s = 99;
+    }
+    s.world.gold = 5;
+    // Open the in-game pause menu (key 21); page 5 with a save = [Continue,
+    // New Game, Load Game, Help, About, Exit] — two RIGHTs land on Load Game.
+    tap(&mut s, 21);
+    assert_eq!(s.mode(), 3, "pause menu");
+    tap(&mut s, 54);
+    tap(&mut s, 54);
+    tap(&mut s, 53); // fire Load Game -> the m14 confirm
+    assert_eq!(s.screen(), Some(Screen::LoadConfirm));
+    tap(&mut s, 22); // YES -> h() load (synchronous)
+    assert_eq!(s.mode(), 6, "load enters the loader");
+    let p = s.world.actors[0]
+        .as_ref()
+        .expect("restored player in slot 0");
+    assert_eq!(p.var_byte_f, want.var_byte_f, "class restored");
+    assert_eq!(p.var_short_s, want.var_short_s, "strength restored");
+    // (health is refilled later by the spawner's player_reset, not by restore)
+    assert_eq!(s.world.gold, i32::from(want.global_int_b), "gold restored");
+    let inv: Vec<i32> = p
+        .var_int_arr_k
+        .iter()
+        .take_while(|&&v| v != 0)
+        .copied()
+        .collect();
+    assert_eq!(inv.len(), want.items.len(), "saved inventory tags restored");
+}
+
 /// Attack-page activation (`b.a(c)` -> `h.a(j,String)`): firing a spell arms
 /// `var_int_arr_m`, checkmarks the spell node, and RE-MARKS the active
 /// weapon (`b.var_c_a.var_boolean_a = true` — both stay checked); the

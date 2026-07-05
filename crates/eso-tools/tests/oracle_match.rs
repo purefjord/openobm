@@ -257,3 +257,32 @@ fn cast_matches_oracle() {
     let rust = dump_cast_sweep(&fixture_path("hf_tables.txt")).expect("rust cast sweep");
     assert_identical(&rust, &oracle("cast_trace.txt"), "cast");
 }
+
+/// The M9 save format validated against a REAL game-written blob (finally):
+/// `oracle/to_save.txt` drove the real jar to the L01 second-dialogue hold
+/// and invoked `b.g()` (the `callsave` Instrument native) — the savelog-hooked
+/// RecordStore captured the raw ESO record (`eso_l01_dialogue2.bin`). The
+/// port's `parse_save` -> `serialize_save` reproduces it byte-for-byte, so a
+/// game-written blob's own save->load is exactly this port. (The self-round-
+/// trip proptest already fuzzed the format; this pins it to a genuine blob.)
+#[test]
+fn save_roundtrips_the_real_blob() {
+    let path = fixture_path("eso_l01_dialogue2.bin");
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("missing {path}: {e}"));
+    let save = formats::parse_save(&bytes).expect("parse the real ESO blob");
+    assert_eq!(
+        formats::serialize_save(&save),
+        bytes,
+        "the real ESO blob does not round-trip byte-for-byte"
+    );
+    // Sanity on the captured contents (the L01 Champion save).
+    let p = save.player.expect("the hold has a live player");
+    assert_eq!(save.flags, [55, 57, 51], "progress bytes '793'");
+    assert_eq!(&p.name, b"/l01_1.scr", "the saved level-script name");
+    assert_eq!(&p.actor.model_name, b"/oh_pc.cml");
+    assert_eq!(
+        p.actor.items.len(),
+        5,
+        "the Monk's 5 starting inventory tags"
+    );
+}

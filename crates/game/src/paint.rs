@@ -230,6 +230,77 @@ pub fn paint_death(fb: &mut Fb, masks: &TextMasks) {
     );
 }
 
+/// Paint the "Game Saved" screen (`b.paint` case 13, offset 3895): black
+/// fill, the lang-450 prompt (large-bold white, centered at `y = b:S/2 -
+/// largeH/2`), and the lang-401 "Press any key" (small-bold, centered
+/// `2*largeH` below).
+pub fn paint_game_saved(fb: &mut Fb, masks: &TextMasks, saved: &str, press: &str) {
+    fb.fill(0x00_00_00);
+    let large_h = masks.metrics(GameFont::LargeBold).midp_height;
+    let y = SCREEN_H / 2 - large_h / 2;
+    let w = masks.string_width(GameFont::LargeBold, saved);
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        saved,
+        SCREEN_W / 2 - w / 2,
+        y,
+        0xFF_FF_FF,
+    );
+    let wp = masks.string_width(GameFont::SmallBold, press);
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        press,
+        SCREEN_W / 2 - wp / 2,
+        y + (large_h << 1),
+        0xFF_FF_FF,
+    );
+}
+
+/// Paint a YES/NO confirm (`b.paint` case 14 "Load Saved Game?", offset 4028;
+/// case 16 "Saved Game Exists"/"Overwrite?", offset 4286): black fill, one or
+/// two large-bold white prompt lines centered by their OWN width (`line1` at
+/// `b:S/2 - largeH/2`, `line2` one `largeH` below), then the same NO/YES
+/// soft-key row as the exit dialog (NO at x=2; YES right-aligned by the
+/// PRE-uppercase "Yes" width) — wholly inside the clipped 320..345 band.
+pub fn paint_yesno(fb: &mut Fb, masks: &TextMasks, line1: &str, line2: Option<&str>) {
+    fb.fill(0x00_00_00);
+    let fh = masks.metrics(GameFont::LargeBold).midp_height;
+    let y1 = SCREEN_H / 2 - fh / 2;
+    let w1 = masks.string_width(GameFont::LargeBold, line1);
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        line1,
+        SCREEN_W / 2 - w1 / 2,
+        y1,
+        0xFF_FF_FF,
+    );
+    if let Some(l2) = line2 {
+        let w2 = masks.string_width(GameFont::LargeBold, l2);
+        masks.stamp(
+            fb,
+            GameFont::LargeBold,
+            l2,
+            SCREEN_W / 2 - w2 / 2,
+            y1 + fh,
+            0xFF_FF_FF,
+        );
+    }
+    let soft_y = SCREEN_H - fh - 2;
+    masks.stamp(fb, GameFont::LargeBold, "NO", 2, soft_y, 0xFF_FF_FF);
+    let w_yes = masks.string_width(GameFont::LargeBold, "Yes"); // pre-uppercase
+    masks.stamp(
+        fb,
+        GameFont::LargeBold,
+        "YES",
+        SCREEN_W - w_yes - 2,
+        soft_y,
+        0xFF_FF_FF,
+    );
+}
+
 /// Paint a text page (`b.paint` cases 4/9/10/17/21/23, offset 2401):
 /// word-wrapped paragraph lines from `h(String)` at x=2, pitched
 /// `c:Font.height + 1` (11px), starting at `y = 3 + g:S`. Inverted pages
