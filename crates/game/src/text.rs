@@ -209,6 +209,14 @@ impl TextMasks {
         self.get(font, s).string_width
     }
 
+    /// Non-panicking [`Self::substring_width`] — `None` when a char has no
+    /// captured advance yet (corpus tooling; the game paths use the panicking
+    /// form so a coverage gap stays loud).
+    pub fn try_substring_width(&self, font: GameFont, s: &str) -> Option<i32> {
+        let table = self.char_widths.get(&font)?;
+        s.chars().map(|c| table.get(&c).copied()).sum()
+    }
+
     /// `Font.substringWidth`-equivalent measurement for the word-wrap: the sum
     /// of captured per-char advances (verified additive by the capture). A
     /// char missing from the fixture is a hard error, same policy as masks.

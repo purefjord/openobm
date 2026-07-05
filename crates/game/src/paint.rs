@@ -497,3 +497,224 @@ pub fn paint_loader(fb: &mut Fb, masks: &TextMasks, label: &str, progress: i8) {
         fb.set(10 + (SCREEN_W - 20), y, 0xFF_FF_FF);
     }
 }
+
+/// Paint the Custom Controls redefine list (`b.paint` case 5, offset 1733).
+/// Everything draws in `c:Font` (small bold). `title` is lang(`j:Z` ? 424
+/// "Select new value" : 425 "Choose a control"); rows come from `a:[String`
+/// (lang 292/293/463/294); the row equal to `save_changes` (lang 294) gets a
+/// blank line ABOVE it and, when selected, suppresses the bottom binding
+/// display. The cursor row draws "> "+label at x=5; others draw the bare
+/// label at x=5+w("> ") = 14 (constant #440 is the empty string). GOTCHA:
+/// constant #477 is `"> "` WITH a trailing space — javap right-trims its
+/// Utf8 display, so it reads as ">"; the oracle textlog
+/// (`str="> Quick Health"` at x=5, non-cursor labels at x=14) is the ground
+/// truth. The selected row's
+/// binding name (`b:[String[g:[B[k:I]]]`) and "BACK" both sit at y=333 —
+/// wholly inside the clipped 320..345 band. QUIRK: the capture-mode red
+/// (`j:Z` -> 0xFF0000) is set before the binding draw and never restored, so
+/// "BACK" inherits it — transcribed faithfully (both are clipped anyway).
+#[allow(clippy::too_many_arguments)]
+pub fn paint_redefine(
+    fb: &mut Fb,
+    masks: &TextMasks,
+    title: &str,
+    items: &[String],
+    cursor: usize,
+    save_changes: &str,
+    binding: Option<&str>,
+    capture: bool,
+) {
+    fb.fill(0x00_00_00);
+    let small_h = masks.metrics(GameFont::SmallBold).midp_height;
+    fb.fill_rect(5, 5, SCREEN_W - 10, 20, 0xFF_FF_FF);
+    let tw = masks.string_width(GameFont::SmallBold, title);
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        title,
+        SCREEN_W / 2 - tw / 2,
+        7,
+        0xDD_00_00,
+    );
+    let gt_w = masks.string_width(GameFont::SmallBold, "> ");
+    let mut y = 30;
+    for (i, label) in items.iter().enumerate() {
+        let x = if i == cursor { 5 } else { 5 + gt_w };
+        if label == save_changes {
+            y += small_h;
+        }
+        if i == cursor {
+            masks.stamp(
+                fb,
+                GameFont::SmallBold,
+                &format!("> {label}"),
+                x,
+                y,
+                0xFF_FF_FF,
+            );
+        } else {
+            masks.stamp(fb, GameFont::SmallBold, label, x, y, 0xFF_FF_FF);
+        }
+        y += small_h;
+    }
+    let mut color = 0xFF_FF_FF;
+    if let Some(b) = binding {
+        if capture {
+            color = 0xFF_00_00;
+        }
+        let bw = masks.string_width(GameFont::SmallBold, b);
+        masks.stamp(
+            fb,
+            GameFont::SmallBold,
+            b,
+            SCREEN_W / 2 - bw / 2,
+            SCREEN_H - small_h - 2,
+            color,
+        );
+    }
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        "BACK",
+        2,
+        SCREEN_H - small_h - 2,
+        color,
+    );
+}
+
+/// Paint the "Key Already Taken" screen (`b.paint` case 20, offset 5195):
+/// black fill, lang 566 centered on both axes in small bold, and the "OK"
+/// soft-key label (lang 567 uppercased) at (2, 333) — clipped band.
+pub fn paint_key_taken(fb: &mut Fb, masks: &TextMasks, msg: &str, ok: &str) {
+    fb.fill(0x00_00_00);
+    let small_h = masks.metrics(GameFont::SmallBold).midp_height;
+    let mw = masks.string_width(GameFont::SmallBold, msg);
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        msg,
+        SCREEN_W / 2 - mw / 2,
+        SCREEN_H / 2 - small_h / 2,
+        0xFF_FF_FF,
+    );
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        ok,
+        2,
+        SCREEN_H - small_h - 2,
+        0xFF_FF_FF,
+    );
+}
+
+/// Paint an overview stat table (`b.paint` case 18, offset 4488) and return
+/// the down-arrow flag (`q:Z` — a PAINT side effect the DOWN input reads).
+///
+/// Layout: black fill; white title box (5,5,W-10,smallH+10) with lang(`l:S`)
+/// centered in dark red at y=10; the record `table[v]` from line `w` down at
+/// x=10, y from 35, pitch smallH. A line wider than `a:S-20` is cut at the
+/// LAST space that fits (repeatedly; no space would AIOOBE in the original —
+/// loud panic here) and its ENTIRE remainder — leading space included — draws
+/// as ONE continuation line at x=15 with no width check (faithful: it can
+/// overflow the right edge). Drawing stops when the next line would start at
+/// `y + 2*smallH >= b:S` (the check runs before the continuation AND before
+/// the next row, leaving `i` on the partially/last-drawn row — the down
+/// arrow's "more" test uses that conservative `i`, faithful).
+///
+/// Tails: "BACK" at (2,333) clipped; UP arrow (group 54, top-right at y=35)
+/// when `w != 0`; DOWN arrow (group 53) above the pager row when content
+/// remains (that condition IS `q:Z`); LEFT/RIGHT pager arrows (groups 56/55)
+/// at the bottom corners unless the (dead in mode 18) `l:S == 573` guard
+/// fires. `ui` is `b:Ld` — /startup2.cml at the menu.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_stat_table(
+    fb: &mut Fb,
+    masks: &TextMasks,
+    assets: &Assets,
+    ui: Option<&Model>,
+    title: &str,
+    table: &[Vec<String>],
+    v: usize,
+    w_line: usize,
+    game_overview: bool,
+) -> bool {
+    fb.fill(0x00_00_00);
+    let small_h = masks.metrics(GameFont::SmallBold).midp_height;
+    fb.fill_rect(5, 5, SCREEN_W - 10, small_h + 10, 0xFF_FF_FF);
+    let tw = masks.string_width(GameFont::SmallBold, title);
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        title,
+        SCREEN_W / 2 - tw / 2,
+        10,
+        0xDD_00_00,
+    );
+    let rec = &table[v];
+    let mut y = 35;
+    let mut i = w_line;
+    'rows: while i < rec.len() {
+        let full = rec[i].as_str();
+        let mut s = full;
+        // the fit loop measures Font.stringWidth — additive char sums on the
+        // oracle (TextCapture-verified), so substring_width is the same math
+        while masks.substring_width(GameFont::SmallBold, s) > SCREEN_W - 20 {
+            let cut = s
+                .rfind(' ')
+                .expect("stat line too wide with no space (the original would AIOOBE)");
+            s = &full[..cut];
+        }
+        masks.stamp(fb, GameFont::SmallBold, s, 10, y, 0xFF_FF_FF);
+        y += small_h;
+        if s.len() < full.len() {
+            if y + 2 * small_h >= SCREEN_H {
+                break 'rows;
+            }
+            masks.stamp(fb, GameFont::SmallBold, &full[s.len()..], 15, y, 0xFF_FF_FF);
+            y += small_h;
+        }
+        if y + 2 * small_h >= SCREEN_H {
+            break 'rows;
+        }
+        i += 1;
+    }
+    masks.stamp(
+        fb,
+        GameFont::SmallBold,
+        "BACK",
+        2,
+        SCREEN_H - small_h - 2,
+        0xFF_FF_FF,
+    );
+    let blit = |fb: &mut Fb, key: i32, x: i32, y: i32| {
+        if let Some(m) = ui {
+            crate::gpaint::draw_model_frame(fb, assets, &m.cml, &m.anim, key, x, y);
+        }
+    };
+    let size = |key: i32| ui.map_or((0, 0), |m| m.frame_size(key));
+    if w_line != 0 {
+        blit(fb, 54, SCREEN_W - size(54).0 - 2, 35);
+    }
+    let more = i < rec.len();
+    if more {
+        let (w53, h53) = size(53);
+        let h55 = size(55).1;
+        blit(
+            fb,
+            53,
+            SCREEN_W - w53 - 2,
+            SCREEN_H - small_h - h53 - h55 - 4,
+        );
+    }
+    if !game_overview {
+        let h53 = size(53).1;
+        blit(fb, 56, 2, SCREEN_H - small_h - h53 - 4);
+        blit(
+            fb,
+            55,
+            SCREEN_W - size(55).0 - 2,
+            SCREEN_H - small_h - h53 - 4,
+        );
+    }
+    more
+}

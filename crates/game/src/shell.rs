@@ -51,6 +51,10 @@ use formats::vm::Step;
 use formats::{Actor, MapRef};
 use std::path::PathBuf;
 
+/// `a(I)I`'s fall-through value (`-1122868`) — a key that is neither a
+/// direction/fire equivalent nor a live binding remaps to this.
+const REMAP_NONE: i32 = -1122868;
+
 /// `a(int)` remapped input codes (up=3 down=4 left=5 right=6 fire=7).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
@@ -73,6 +77,23 @@ impl Action {
             8 | 20 | 53 => Some(Action::Fire),
             _ => None,
         }
+    }
+}
+
+/// `a:I >= 0 ? a:I : getGameAction(a:I)` — the stored form of a binding (and
+/// the collision-check normalization). A negative code resolves to its game
+/// action (1/6/2/5/8); an unresolvable one to 0 (MIDP's "no action").
+fn normalized_key(key: i32) -> i32 {
+    if key >= 0 {
+        return key;
+    }
+    match Action::from_key(key) {
+        Some(Action::Up) => 1,
+        Some(Action::Down) => 6,
+        Some(Action::Left) => 2,
+        Some(Action::Right) => 5,
+        Some(Action::Fire) => 8,
+        None => 0,
     }
 }
 
@@ -105,6 +126,9 @@ pub enum Screen {
     GameSaved,        // m=13 ("Game Saved" + press any key)
     LoadConfirm,      // m=14 ("Load Saved Game?" YES/NO)
     OverwriteConfirm, // m=16 ("Saved Game Exists" / "Overwrite?" YES/NO)
+    ControlsRedefine, // m=5 (the Custom Controls redefine list; m=20 confirms)
+    KeyTaken,         // m=20 ("Key Already Taken" + OK)
+    StatTable,        // m=18 (the overview stat tables)
 }
 
 pub struct Shell {
@@ -150,9 +174,28 @@ pub struct Shell {
     pending_leave: Option<Leave>, // fenced boundary crossings
     exited: bool,                 // notifyDestroyed() fired (b.c(), YES on exit)
     pw_acc: i16,                  // k:S (the mode-15 please-wait anim timer)
-    /// The key bindings `g:[B` (quick-health, quick-magika, toggle-weapon;
-    /// defaults `f:[B = {55, 57, 51}` — keys 7/9/3).
+    /// `f:[B` — the LIVE key bindings (quick-health, quick-magika,
+    /// toggle-weapon; defaults `{55, 57, 51}` = keys 7/9/3). The `a(I)I`
+    /// remap and the save record read THIS table; mode 5 edits a copy.
     bindings: [i32; 3],
+    /// `g:[B` — the mode-5 EDIT copy: Custom Controls entry copies f in,
+    /// "Save Changes" commits it back (f ← g) + `g()`. `j()` zeroes it.
+    bindings_edit: [i32; 3],
+    /// `k:I` — the mode-5 list cursor. Reset only by `j()`, so it PERSISTS
+    /// across Custom Controls visits (faithful).
+    redef_cursor: usize,
+    /// `j:Z` — mode-5 capture armed ("Select new value"; next accepted
+    /// non-soft key binds or bounces to mode 20).
+    capture: bool,
+    /// `b:[[String` — the CURRENT overview table shown by mode 18.
+    stat_table: Vec<Vec<String>>,
+    /// The memoized per-topic builders (`c..h:[[String`), nulled by `k()`.
+    stat_caches: crate::stattab::StatCaches,
+    /// `v:B` / `w:B` — the mode-18 record index / top-line index.
+    stat_v: usize,
+    stat_w: usize,
+    /// `q:Z` — "the down arrow was drawn" paint side effect; gates DOWN.
+    q_flag: bool,
     /// `var_java_lang_String_c` — the current level's script path (set by the
     /// loader; the save writes it as the record "name", the load re-runs the
     /// loader on it).
@@ -223,6 +266,14 @@ impl Shell {
             exited: false,
             pw_acc: 0,
             bindings: [55, 57, 51],
+            bindings_edit: [0, 0, 0], // j(): g:[B zeroed
+            redef_cursor: 0,
+            capture: false,
+            stat_table: Vec::new(),
+            stat_caches: crate::stattab::StatCaches::default(),
+            stat_v: 0,
+            stat_w: 0,
+            q_flag: false, // <clinit>
             level_script: String::new(),
             bool_o: false,
             save_slot: None,
@@ -1137,6 +1188,87 @@ impl Shell {
                     self.released = false;
                     return;
                 }
+                5 => {
+                    // Custom Controls (input 2725): i5 = a(i5) first (the
+                    // LIVE table). Capturing (j:Z): soft keys do NOTHING
+                    // (capture stays armed); a valid key binds into the EDIT
+                    // table (raw if >= 0, else its game action), an invalid
+                    // one bounces to mode 20 — j:Z clears either way.
+                    // Browsing: BACK -> mode 3 (page still 6); UP/DOWN move
+                    // the cursor CLAMPED (no wrap); FIRE on "Save Changes"
+                    // commits f <- g + mode 3 + g() (the real save write);
+                    // FIRE elsewhere arms the capture. All branches p:B = 1.
+                    let i5r = self.remap(key);
+                    if self.capture {
+                        if key != 21 && key != 22 {
+                            if self.key_valid(key, i5r) {
+                                self.bindings_edit[self.redef_cursor] = normalized_key(key);
+                            } else {
+                                self.set_mode(20);
+                            }
+                            self.capture = false;
+                        }
+                    } else if key == 21 {
+                        self.set_mode(3);
+                    } else if i5r == 3 {
+                        self.redef_cursor = self.redef_cursor.saturating_sub(1);
+                    } else if i5r == 4 {
+                        // min(a:[String.len - 1, k+1); the l() list is fixed
+                        // [Quick Health, Quick Magicka, Toggle Attack,
+                        // Save Changes]
+                        self.redef_cursor = (self.redef_cursor + 1).min(3);
+                    } else if i5r == 7 {
+                        if self.redef_cursor == 3 {
+                            // a:[String[k] == lang 294 "Save Changes"
+                            self.bindings = self.bindings_edit; // f <- g
+                            self.capture = false;
+                            self.set_mode(3);
+                            self.save_game(); // g()
+                        } else {
+                            self.capture = true;
+                        }
+                    }
+                    self.released = true; // p:B = 1 (2957)
+                }
+                18 => {
+                    // Stat tables (input 3132): BACK -> mode 3; LEFT/RIGHT
+                    // cycle the record (wrapping) and reset the line; UP
+                    // clamps at 0; DOWN only if the last paint drew the down
+                    // arrow (q:Z). EVERY key is consumed directly (3276) —
+                    // mode-18 keys never reach the VM tail.
+                    let i5r = self.remap(key);
+                    if key == 21 {
+                        self.set_mode(3);
+                    } else if i5r == 5 {
+                        self.stat_w = 0;
+                        self.stat_v = if self.stat_v == 0 {
+                            self.stat_table.len() - 1
+                        } else {
+                            self.stat_v - 1
+                        };
+                    } else if i5r == 6 {
+                        self.stat_w = 0;
+                        self.stat_v = (self.stat_v + 1) % self.stat_table.len();
+                    } else if i5r == 3 {
+                        self.stat_w = self.stat_w.saturating_sub(1);
+                    } else if i5r == 4 && self.q_flag {
+                        self.stat_w += 1;
+                    }
+                    self.latched = KEY_SENTINEL;
+                    self.released = false;
+                    return;
+                }
+                20 => {
+                    // Key Already Taken (input 3538): ONLY b:B (21, the "OK"
+                    // soft key) -> mode 5, consumed; everything else falls
+                    // to the tail.
+                    if key == 21 {
+                        self.set_mode(5);
+                        self.latched = KEY_SENTINEL;
+                        self.released = false;
+                        return;
+                    }
+                }
                 _ => {}
             }
         }
@@ -1159,10 +1291,20 @@ impl Shell {
         }
     }
 
-    /// `b.a(I)I` — the full in-game key remap: the bound quick keys (`g:[B`) to
-    /// 0/1/2, then the direction/fire actions to 3..=7; anything else passes
-    /// through raw.
+    /// `b.a(I)I` (javap 11492) — the full key remap, in bytecode order: the
+    /// direction/fire equivalences FIRST (1|50→3, 6|56→4, 2|52→5, 5|54→6,
+    /// 8|20|53→7 — so those digits can never be shadowed by a binding), then
+    /// the LIVE bindings `f:[B` → 0/1/2, else the `-1122868` sentinel (the
+    /// real fall-through — NOT the raw key; nothing downstream matches it).
     fn remap(&self, key: i32) -> i32 {
+        match Action::from_key(key) {
+            Some(Action::Up) => return 3,
+            Some(Action::Down) => return 4,
+            Some(Action::Left) => return 5,
+            Some(Action::Right) => return 6,
+            Some(Action::Fire) => return 7,
+            None => {}
+        }
         if key == self.bindings[0] {
             return 0; // quick health
         }
@@ -1172,14 +1314,25 @@ impl Shell {
         if key == self.bindings[2] {
             return 2; // toggle weapon
         }
-        match Action::from_key(key) {
-            Some(Action::Up) => 3,
-            Some(Action::Down) => 4,
-            Some(Action::Left) => 5,
-            Some(Action::Right) => 6,
-            Some(Action::Fire) => 7,
-            None => key,
+        REMAP_NONE
+    }
+
+    /// `b.a(II)Z` (javap 13709) — can `key` bind to the selected mode-5 row?
+    /// Its stored form must not collide with another EDIT-table slot (the
+    /// row being edited is skipped — rebinding a slot to its own key is
+    /// fine); remapped direction/fire actions (3..=7 — so the hardwired
+    /// digits 2/4/5/6/8 are unbindable) and the soft keys are reserved.
+    fn key_valid(&self, key: i32, action: i32) -> bool {
+        let k1 = normalized_key(key);
+        for (i, &b) in self.bindings_edit.iter().enumerate() {
+            if i != self.redef_cursor && k1 == b {
+                return false; // taken -> mode 20 "Key Already Taken"
+            }
         }
+        if (3..=7).contains(&action) {
+            return false;
+        }
+        k1 != 22 && k1 != 21
     }
 
     /// `b(J)` case 0 (input 1804) — the gameplay key dispatch. Returns `true`
@@ -1905,8 +2058,11 @@ impl Shell {
             self.cursors[self.page as usize] = 2;
             self.set_mode(13);
         } else if is(3) {
-            // Load Game (2118): the mode-14 "Load Saved Game?" confirm.
+            // Load Game (1887): k() nulls the overview caches, mode 14, and
+            // the key is consumed (sentinel — it never feeds the VM tail).
+            self.k_clear();
             self.set_mode(14);
+            self.latched = KEY_SENTINEL;
         } else if is(21) {
             self.set_mode(0); // Continue (resume in-game pause)
             self.world.dirty = true;
@@ -1929,12 +2085,26 @@ impl Shell {
             self.topic = 457; // l:S (the 17/23 title); w:B/v:B are mode-5/18
             self.set_mode(17); // Basic Controls text page
         } else if is(458) {
-            self.pending_leave = Some(Leave::Mode(5)); // Custom Controls
+            // Custom Controls (2133): copy the LIVE bindings into the edit
+            // table (g <- f), consume the key, mode 5. The cursor (k:I) is
+            // NOT reset — it persists across visits (only j() zeroes it).
+            self.bindings_edit = self.bindings;
+            self.latched = KEY_SENTINEL;
+            self.set_mode(5);
         } else if is(573) {
-            self.topic = 573;
-            self.set_mode(23); // Game Overview text page
-        } else if is(522) || is(459) || is(460) || is(461) || is(462) {
-            self.pending_leave = Some(Leave::Mode(18)); // stat-table overviews
+            // Game Overview (2220): l:S, w/v reset, b:[[Str = a() (built but
+            // unused by the mode-23 text-page paint), then mode 23.
+            self.enter_stat_table(573);
+        } else if is(522) {
+            self.enter_stat_table(522); // Classes Overview -> b()
+        } else if is(459) {
+            self.enter_stat_table(459); // Weapons Overview -> f()
+        } else if is(460) {
+            self.enter_stat_table(460); // Armor Overview -> e()
+        } else if is(461) {
+            self.enter_stat_table(461); // Spells Overview -> d()
+        } else if is(462) {
+            self.enter_stat_table(462); // Items Overview -> c()
         } else if is(18) {
             self.pending_leave = Some(Leave::Mode(1)); // Go Shopping
         } else if is(20) {
@@ -1944,6 +2114,7 @@ impl Shell {
             // k(); r:B = 0; mode 6; null actors; the loader on the HARDCODED
             // /l01_1.scr; b:I = 100 (the starting gold). The chosen class
             // reaches the spawner via the class-select cursor (e:[B[1]).
+            self.k_clear();
             self.progress = 0;
             self.loader("/l01_1.scr").expect("class-fire level load");
             self.world.gold = 100;
@@ -1952,6 +2123,47 @@ impl Shell {
         } else {
             panic!("menu item not in the ported compare chain: {item:?}");
         }
+    }
+
+    /// `b.k()` (2345) — null the `b..h:[[String` overview caches. Only two
+    /// call sites: the Load-Game fire and the class fire.
+    fn k_clear(&mut self) {
+        self.stat_caches.clear();
+    }
+
+    /// The shared overview-item fire tail (2220..2545): `l:S = <id>`,
+    /// `w:B = v:B = 0`, `b:[[String` = the (memoized) builder, then mode 18
+    /// (mode 23 for Game Overview, whose table the text-page paint ignores).
+    fn enter_stat_table(&mut self, id: u16) {
+        self.topic = id;
+        self.stat_w = 0;
+        self.stat_v = 0;
+        let lang = &self.lang;
+        let vm = &self.vm;
+        let caches = &mut self.stat_caches;
+        self.stat_table = match id {
+            573 => caches
+                .overview
+                .get_or_insert_with(|| crate::stattab::overview(lang)),
+            522 => caches
+                .classes
+                .get_or_insert_with(|| crate::stattab::classes(lang, vm)),
+            459 => caches
+                .weapons
+                .get_or_insert_with(|| crate::stattab::weapons(lang, vm)),
+            460 => caches
+                .armor
+                .get_or_insert_with(|| crate::stattab::armor(lang, vm)),
+            461 => caches
+                .spells
+                .get_or_insert_with(|| crate::stattab::spells(lang, vm)),
+            462 => caches
+                .items
+                .get_or_insert_with(|| crate::stattab::items(lang, vm)),
+            other => unreachable!("no overview builder for lang {other}"),
+        }
+        .clone();
+        self.set_mode(if id == 573 { 23 } else { 18 });
     }
 
     /// A fenced boundary the input crossed (class fire, Exit/Help/About),
@@ -1978,6 +2190,9 @@ impl Shell {
             (13, _) => Some(Screen::GameSaved),
             (14, _) => Some(Screen::LoadConfirm),
             (16, _) => Some(Screen::OverwriteConfirm),
+            (5, _) => Some(Screen::ControlsRedefine),
+            (20, _) => Some(Screen::KeyTaken),
+            (18, _) => Some(Screen::StatTable),
             _ => None,
         }
     }
@@ -2016,6 +2231,24 @@ impl Shell {
     /// tests arm items through the same rows the game reads).
     pub fn tables(&self) -> &formats::Tables {
         &self.vm.tables
+    }
+
+    /// The lang table — test/corpus-tooling access.
+    pub fn lang(&self) -> &formats::lang::Lang {
+        &self.lang
+    }
+
+    /// Build all six overview tables fresh (corpus/regen tooling; bypasses
+    /// the caches on purpose — the content is what matters).
+    pub fn all_stat_tables(&self) -> Vec<(u16, Vec<Vec<String>>)> {
+        vec![
+            (573, crate::stattab::overview(&self.lang)),
+            (522, crate::stattab::classes(&self.lang, &self.vm)),
+            (459, crate::stattab::weapons(&self.lang, &self.vm)),
+            (460, crate::stattab::armor(&self.lang, &self.vm)),
+            (461, crate::stattab::spells(&self.lang, &self.vm)),
+            (462, crate::stattab::items(&self.lang, &self.vm)),
+        ]
     }
 
     /// Invoke `b.g()` and return the written `ESO` blob — the save-parity
@@ -2196,6 +2429,55 @@ impl Shell {
                 self.lang.get(455),       // "Saved Game Exists"
                 Some(self.lang.get(464)), // "Overwrite?"
             ),
+            5 => {
+                // The l() redefine list is the fixed lang 292/293/463/294
+                // labels (resolved lazily — all base-table ids, so the
+                // overlay can never shadow them); the selected row's current
+                // binding renders through the key-name table.
+                let title = self
+                    .lang
+                    .get(if self.capture { 424 } else { 425 })
+                    .to_string();
+                let items: Vec<String> = [292u16, 293, 463, 294]
+                    .iter()
+                    .map(|&id| self.lang.get(id).to_string())
+                    .collect();
+                let save_changes = self.lang.get(294).to_string();
+                let binding = (items[self.redef_cursor] != save_changes)
+                    .then(|| self.key_name(self.bindings_edit[self.redef_cursor]));
+                crate::paint::paint_redefine(
+                    &mut fb,
+                    &self.masks,
+                    &title,
+                    &items,
+                    self.redef_cursor,
+                    &save_changes,
+                    binding.as_deref(),
+                    self.capture,
+                );
+            }
+            20 => {
+                let msg = self.lang.get(566).to_string(); // "Key Already Taken"
+                let ok = self.lang.get(567).to_uppercase(); // "OK"
+                crate::paint::paint_key_taken(&mut fb, &self.masks, &msg, &ok);
+            }
+            18 => {
+                let title = self.lang.get(self.topic).to_string();
+                let ui = self.ui_model.clone();
+                let ui_ref = ui.as_deref().map(|n| &*self.models.get(n));
+                // q:Z is a PAINT side effect the DOWN input reads.
+                self.q_flag = crate::paint::paint_stat_table(
+                    &mut fb,
+                    &self.masks,
+                    &self.assets,
+                    ui_ref,
+                    &title,
+                    &self.stat_table,
+                    self.stat_v,
+                    self.stat_w,
+                    self.topic == 573,
+                );
+            }
             2 => {} // b.paint case 2 draws NOTHING (goto 5590) — f paints below
             12 => anyhow::bail!(
                 "paint mode 12 is terminal: the real paint draws NOTHING (the \

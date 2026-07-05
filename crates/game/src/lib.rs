@@ -16,6 +16,7 @@ pub mod paint;
 pub mod save;
 pub mod script;
 pub mod shell;
+pub mod stattab;
 pub mod text;
 pub mod vm;
 pub mod world;
