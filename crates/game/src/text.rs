@@ -204,9 +204,19 @@ impl TextMasks {
         })
     }
 
+    fn try_get(&self, font: GameFont, s: &str) -> Option<&Mask> {
+        self.masks.get(&(font, s.to_owned()))
+    }
+
     /// `Font.stringWidth` for layout math (the game centers as `120 - w/2`).
+    /// Falls back to the (capture-verified additive) char-advance sum for a
+    /// string with no whole-string mask — dynamic text (damage numbers, HUD
+    /// labels off the gated paths) measures identically either way.
     pub fn string_width(&self, font: GameFont, s: &str) -> i32 {
-        self.get(font, s).string_width
+        match self.try_get(font, s) {
+            Some(m) => m.string_width,
+            None => self.substring_width(font, s),
+        }
     }
 
     /// Non-panicking [`Self::substring_width`] — `None` when a char has no
@@ -236,8 +246,30 @@ impl TextMasks {
 
     /// Draw `s` exactly as `Graphics.drawString(s, x, y, 0)` does on the
     /// oracle with `font` set: ink pixels become `rgb`, the rest untouched.
+    ///
+    /// A string with no whole-string mask COMPOSES from the single-char
+    /// masks at the captured advances — pixel-identical to a whole-string
+    /// draw because the capture verifies both width additivity (over every
+    /// corpus substring) and position independence (AA off, no kerning).
+    /// This covers dynamic text the corpus cannot enumerate (damage
+    /// numbers, live HUD labels); every GATED string still stamps its
+    /// captured whole-string mask. A char with no mask stays a loud panic.
     pub fn stamp(&self, fb: &mut Fb, font: GameFont, s: &str, x: i32, y: i32, rgb: u32) {
-        let m = self.get(font, s);
+        if let Some(m) = self.try_get(font, s) {
+            Self::blit(fb, m, x, y, rgb);
+            return;
+        }
+        let mut ax = x;
+        for c in s.chars() {
+            if c != ' ' {
+                let m = self.get(font, c.encode_utf8(&mut [0u8; 4]));
+                Self::blit(fb, m, ax, y, rgb);
+            }
+            ax += self.substring_width(font, c.encode_utf8(&mut [0u8; 4]));
+        }
+    }
+
+    fn blit(fb: &mut Fb, m: &Mask, x: i32, y: i32, rgb: u32) {
         for row in 0..m.mh {
             for col in 0..m.mw {
                 if m.bits[row * m.mw + col] {
