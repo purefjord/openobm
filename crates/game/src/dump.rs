@@ -107,6 +107,25 @@ pub fn world_dump(s: &Shell) -> String {
     out
 }
 
+/// `Instrument.dumpOver`'s format: the three event overlays (enter
+/// `b.j:[B`, leave `b.k:[B`, action `b.c:[B`) as flat unsigned-decimal
+/// bytes — the maze generator's j/k/c writes are invisible to `layers_dump`
+/// (they're not vector layers), so the op47 gate pins them here.
+pub fn overlays_dump(s: &Shell) -> String {
+    let mut out = String::new();
+    out.push_str("overlays=3\n");
+    for layer in [&s.world.enter, &s.world.leave, &s.world.action] {
+        let line = layer
+            .iter()
+            .map(|&v| (v as u8).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
 /// `Instrument.dumpJtm`'s format: collision + every visual layer as flat
 /// unsigned-decimal bytes (x*height+y order).
 pub fn layers_dump(s: &Shell) -> String {

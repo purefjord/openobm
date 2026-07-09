@@ -93,9 +93,9 @@ async fn main() {
             shell.release();
         }
 
-        // At an unported content boundary (e.g. op47, the sewer maze) the
-        // VM has halted: keep painting the last live frame, but stop ticking
-        // gameplay and show an honest overlay instead of a hard crash.
+        // At an unported content boundary (an opcode the port hasn't reached
+        // yet) the VM has halted: keep painting the last live frame, but stop
+        // ticking gameplay and show an honest overlay instead of a hard crash.
         let boundary = shell.unported_boundary();
         if boundary.is_none() {
             // run(): dt is wall-clock; clamp a stall (window drag etc.) so

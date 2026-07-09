@@ -25,6 +25,10 @@
 //!   callhide / callshow           fire hideNotify/showNotify (m22 interrupt)
 //!   callmode <n>                  invoke the REAL setter b.a((byte)n) (op61 etc.)
 //!   calllang <id>                 the op56 native: load a lang overlay table
+//!   callscript <res>              the op29 native b.a(String): load a script
+//!   setseed <n>                   re-base the shared combat/maze RNG
+//!   callmaze <row> <n> <n2>       the op47 native (maze regen; seed first)
+//!   dumpover <name.txt>           the Instrument.dumpOver overlays dump
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -70,6 +74,10 @@ pub enum Cmd {
     CallShow,
     CallMode(i8),
     CallLang(u16),
+    CallScript(String),
+    SetSeed(i64),
+    CallMaze(i32, i32, i32),
+    DumpOver(String),
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -114,6 +122,10 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "callshow" => Cmd::CallShow,
             "callmode" => Cmd::CallMode(arg()?.parse()?),
             "calllang" => Cmd::CallLang(arg()?.parse()?),
+            "callscript" => Cmd::CallScript(arg()?.to_string()),
+            "setseed" => Cmd::SetSeed(arg()?.parse()?),
+            "callmaze" => Cmd::CallMaze(arg()?.parse()?, arg()?.parse()?, arg()?.parse()?),
+            "dumpover" => Cmd::DumpOver(arg()?.to_string()),
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -205,6 +217,12 @@ pub fn drive(
             Cmd::CallShow => shell.show_notify(),
             Cmd::CallMode(n) => shell.call_mode(n),
             Cmd::CallLang(id) => shell.load_lang_overlay(id),
+            Cmd::CallScript(name) => shell.call_script(&name),
+            Cmd::SetSeed(seed) => shell.set_seed(seed),
+            Cmd::CallMaze(row, n, n2) => shell.op47_maze(row, n, n2),
+            Cmd::DumpOver(name) => {
+                artifacts.insert(name, Artifact::Text(crate::dump::overlays_dump(shell)));
+            }
         }
     }
     Ok(artifacts)

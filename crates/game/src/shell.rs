@@ -198,11 +198,11 @@ pub struct Shell {
     stat_w: usize,
     /// `q:Z` — "the down arrow was drawn" paint side effect; gates DOWN.
     q_flag: bool,
-    /// The first unported script opcode hit (a content boundary, e.g. op47
-    /// = the L01 sewer-maze generator). The real game would run it; the port
-    /// records it and STOPS the VM gracefully instead of panicking, so a
-    /// frontend can show an honest "unported content" screen rather than a
-    /// hard crash. `None` while inside the ported slice.
+    /// The first unported script opcode hit (a content boundary in a
+    /// deeper level the port hasn't reached). The real game would run it;
+    /// the port records it and STOPS the VM gracefully instead of panicking,
+    /// so a frontend can show an honest "unported content" screen rather
+    /// than a hard crash. `None` while inside the ported slice.
     unported_op: Option<u8>,
     /// `n:B` — the mode saved by hideNotify (the interrupt screen's YES
     /// restores it); -1 idle.
@@ -744,14 +744,19 @@ impl Shell {
                 let name = step.strings[0].clone();
                 self.loader(&name).expect("op29 script chain");
             }
+            47 => {
+                // e.b(long) case 47: b.a(int_arr_a(9, row), var_int_arr_g,
+                // n, n2) — the procedural maze generator (the L01 sewers).
+                self.op47_maze(op(0), op(1), op(2));
+            }
             72 => {} // free cached graphics: no resource effect (validated M7)
             other => {
-                // An unported content opcode (e.g. op47 = the L01 sewer-maze
-                // generator, reached by chaining to l01_1r.scr). Record the
-                // boundary and HALT the VM instead of panicking — a frontend
-                // shows an honest stop; the parity drives never reach here,
-                // so an unexpected op still surfaces (as a stalled VM) rather
-                // than corrupting a gated frame.
+                // An unported content opcode (deeper-level content the port
+                // hasn't reached yet). Record the boundary and HALT the VM
+                // instead of panicking — a frontend shows an honest stop; the
+                // parity drives never reach here, so an unexpected op still
+                // surfaces (as a stalled VM) rather than corrupting a gated
+                // frame.
                 self.unported_op = Some(other);
                 self.vm.halt();
             }
@@ -2538,14 +2543,12 @@ impl Shell {
     }
 
     /// The unported content boundary the VM hit, if any (a frontend renders
-    /// an honest stop screen instead of a broken world). `op47` is the L01
-    /// sewer-maze generator (`b.a([I,[I,I,I)`, script `l01_1r`); the maze
-    /// subsystem is the next porting milestone.
+    /// an honest stop screen instead of a broken world). Empty since loop
+    /// #22 ported op47 (the L01 sewer maze) — the next boundary would be a
+    /// deeper-level opcode.
     pub fn unported_boundary(&self) -> Option<String> {
-        self.unported_op.map(|op| match op {
-            47 => "Reached the sewer maze — not ported yet (op47).".to_string(),
-            other => format!("Reached unported content (script op{other})."),
-        })
+        self.unported_op
+            .map(|op| format!("Reached unported content (script op{op})."))
     }
 
     /// The wrapped text-page model (`a:[Ljava/util/Vector;`) — the fixed-
@@ -2588,11 +2591,51 @@ impl Shell {
         self.lang.set_overlay(overlay);
     }
 
-    /// Run the loader on a script (a walked-over exit trigger's op29 chain).
-    /// Test/tooling access — the maze-boundary test drives the room
-    /// transition without walking the player to the exit cell.
-    pub fn force_load_for_test(&mut self, name: &str) {
-        self.loader(name).expect("test loader");
+    /// The `callscript` injection: the real `b.a(String)` loader invoked
+    /// directly (the op29 native) — jumps the drive to any script without
+    /// walking the choreography to its exit trigger.
+    pub fn call_script(&mut self, name: &str) {
+        self.loader(name).expect("callscript loader");
+    }
+
+    /// The `setseed` injection: re-base the shared combat/maze RNG
+    /// (`b.var_java_util_Random_a.setSeed(seed)` on the oracle side) so a
+    /// following `callmaze` is a pure function of the seed on both sides.
+    pub fn set_seed(&mut self, seed: i64) {
+        self.world.rng.set_seed(seed);
+    }
+
+    /// The op47 native `b.a(int_arr_a(9, row), var_int_arr_g, n, n2)` — also
+    /// the `callmaze` injection. Resolves the subtype-9 config row, the
+    /// tag-20 pickup list, and the enemy stat row/model exactly like the
+    /// dispatch site, then runs the generator.
+    pub fn op47_maze(&mut self, row: i32, n: i32, n2: i32) {
+        let cfg = self
+            .vm
+            .tables
+            .row(9, row)
+            .expect("op47 subtype-9 row")
+            .to_vec();
+        let slots9 = self.vm.slots9.clone();
+        let stat_row = self
+            .vm
+            .tables
+            .row(0, cfg[17])
+            .expect("op47 enemy stat row")
+            .to_vec();
+        let model = self.vm.pool_string(stat_row[1]).to_string();
+        crate::maze::generate(
+            &mut self.world,
+            &self.vm.tables,
+            &mut self.models,
+            &cfg,
+            &slots9,
+            &stat_row,
+            &model,
+            n,
+            n2,
+            self.cursors[1] as i32,
+        );
     }
 
     /// The `setflat` injection: write the shop stock pairs + the -1

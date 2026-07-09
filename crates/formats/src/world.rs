@@ -92,6 +92,12 @@ fn recompute_iso(a: &mut Actor) {
     ];
 }
 
+/// `h.b(j)` standalone (the maze `m()` calls it right after `h.a(j)` without
+/// moving the actor — the tile/draw-order samples refresh in place).
+pub fn resync_tiles(a: &mut Actor) {
+    recompute_tiles(a);
+}
+
 /// `h.void_b(j)` — the three corners' tile coordinates (world `>> 7`), then `h.e`.
 fn recompute_tiles(a: &mut Actor) {
     a.var_byte_arr_b = [
