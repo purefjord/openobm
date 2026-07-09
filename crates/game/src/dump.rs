@@ -10,6 +10,29 @@ use crate::shell::Shell;
 /// dump the STALE line vector there — `b.var_java_util_Vector_b` persists
 /// after dismissal, our `Option<Dialogue>` does not).
 pub fn world_dump(s: &Shell) -> String {
+    world_dump_inner(s, false)
+}
+
+/// The generator-gate variant, for the maze + exit-chain gates: masks the
+/// CARRIED / PRESENTATION b-state that the op47 generator and the room-load
+/// chain do NOT deterministically produce, because reaching them runs the
+/// unattended, non-deterministic L01 opening/fight. Masked fields:
+/// - the player's (slot 0) INVENTORY (`inv=<carried>`) — the maze op15 spawn
+///   reuses-or-freshly-spawns the fight-chaos player (the oracle itself drifts
+///   run-to-run between its carried consumables and a base row-1 spawn);
+/// - `hud` (op76 `var_boolean_e`) — a carried flag the maze never sets;
+/// - the DIALOGUE presentation (`speaker`, `dlg`, the wrapped lines) — depends
+///   on the entry-cell FIRE's 1s-dismiss timing and on lang-overlay load state
+///   (the l01_1b/c "you return" text resolves empty on the real game here).
+///
+/// Everything the generator/chain DOES determine stays gated byte-for-byte:
+/// the map layers, the event overlays, the seeded ENEMY spawns + pickups, the
+/// player's class/stats/pos, and `respawn`/`cam`/`gold`/`lock`.
+pub fn world_dump_gen(s: &Shell) -> String {
+    world_dump_inner(s, true)
+}
+
+fn world_dump_inner(s: &Shell, mask_player_inv: bool) -> String {
     let mut out = String::new();
     out.push_str("# world dump: per-actor deterministic fields at a settled hold\n");
     for (n, slot) in s.world.actors.iter().enumerate() {
@@ -51,20 +74,24 @@ pub fn world_dump(s: &Shell) -> String {
             .collect::<Vec<_>>()
             .join(",");
         out.push_str(&format!(" armor={armor}"));
-        let inv: Vec<String> = a
-            .var_int_arr_k
-            .iter()
-            .take_while(|&&v| v != 0)
-            .map(ToString::to_string)
-            .collect();
-        out.push_str(&format!(
-            " inv={}",
-            if inv.is_empty() {
-                "-".into()
-            } else {
-                inv.join(",")
-            }
-        ));
+        if mask_player_inv && n == 0 {
+            out.push_str(" inv=<carried>");
+        } else {
+            let inv: Vec<String> = a
+                .var_int_arr_k
+                .iter()
+                .take_while(|&&v| v != 0)
+                .map(ToString::to_string)
+                .collect();
+            out.push_str(&format!(
+                " inv={}",
+                if inv.is_empty() {
+                    "-".into()
+                } else {
+                    inv.join(",")
+                }
+            ));
+        }
         out.push_str(&format!(
             " spell={}",
             a.var_int_arr_l
@@ -78,16 +105,36 @@ pub fn world_dump(s: &Shell) -> String {
             a.display_name.as_deref().unwrap_or("-")
         ));
     }
+    // The dialogue OPEN/CLOSED state (`dlg=` + the wrapped lines) is masked in
+    // the generator variant: it depends on whether the entry-cell FIRE that
+    // opened it has been dismissed by dump time (the 1s rule × wall-clock
+    // jitter), which the generator does not determine. The strict variant
+    // gates it at a settled op21 hold.
+    // `hud` (the op76 var_boolean_e flag) and the dialogue state are CARRIED
+    // b-flags the maze op47 does not set, so they reflect the non-deterministic
+    // pre-maze fight — masked in the generator variant.
+    let (dlg_field, hud_field) = if mask_player_inv {
+        ("<masked>".to_string(), "<masked>".to_string())
+    } else {
+        (
+            i32::from(s.world.dialogue.is_some()).to_string(),
+            i32::from(s.world.hud_enabled).to_string(),
+        )
+    };
     out.push_str(&format!(
         "cam={} respawn={},{} gold={} hud={} lock={} speaker={} dlg={} pickups={}\n",
         s.world.cam_follow,
         s.world.respawn[0],
         s.world.respawn[1],
         s.world.gold,
-        i32::from(s.world.hud_enabled),
+        hud_field,
         i32::from(!s.world.input_unlocked),
-        s.world.speaker.as_deref().unwrap_or("-"),
-        i32::from(s.world.dialogue.is_some()),
+        if mask_player_inv {
+            "<masked>"
+        } else {
+            s.world.speaker.as_deref().unwrap_or("-")
+        },
+        dlg_field,
         if s.world.pickup_count == 0 {
             "-".into()
         } else {
@@ -98,12 +145,16 @@ pub fn world_dump(s: &Shell) -> String {
                 .join(",")
         },
     ));
-    let dlg = s
-        .world
-        .dialogue
-        .as_ref()
-        .expect("world_dump at a dialogue hold");
-    out.push_str(&format!("dialogue:|{}\n", dlg.lines.join("|")));
+    if mask_player_inv {
+        out.push_str("dialogue:<masked>\n");
+    } else {
+        let dlg = s
+            .world
+            .dialogue
+            .as_ref()
+            .expect("world_dump at a dialogue hold");
+        out.push_str(&format!("dialogue:|{}\n", dlg.lines.join("|")));
+    }
     out
 }
 

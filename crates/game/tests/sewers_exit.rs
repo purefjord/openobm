@@ -7,11 +7,16 @@
 //! (`oracle/to_sewers.txt`) drives both sides: generate the maze (seeded),
 //! push the chain entry, settle at the next room's first-dialogue hold.
 //!
-//! Both rooms reload `/l01_1.jtm` and re-run a "you return" opening to the
-//! Wesley guard dialogue; the actor array + map converge, but the two scripts
+//! Both rooms reload `/l01_1.jtm` and re-run a "you return" opening that halts
+//! at its first dialogue; the actor array + map converge, but the two scripts
 //! arm DIFFERENT event overlays (l01_1b's `entry 6` vs l01_1c's `entry 7`),
-//! which the `dumpover` fixtures distinguish. Every fixture came out of the
-//! real `Oblivion.jar` running this exact script through OracleRun.
+//! which the `dumpover` fixtures distinguish. The world dump is the
+//! GENERATOR variant (`dumpworldg`): the carried/presentation state (player
+//! inventory, the op76 hud flag, the dialogue speaker/open-state/text) is
+//! masked because it reflects the non-deterministic unattended L01 fight and
+//! the lang-overlay resolution of the opening text — neither of which the
+//! exit chain determines. Every fixture came out of the real `Oblivion.jar`
+//! running this exact script through OracleRun, verified stable across runs.
 
 use game::shell::Shell;
 use game::text::TextMasks;

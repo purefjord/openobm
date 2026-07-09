@@ -30,6 +30,8 @@
 //!   callmaze <row> <n> <n2>       the op47 native (maze regen; seed first)
 //!   dumpover <name.txt>           the Instrument.dumpOver overlays dump
 //!   callentry <n>                 the real e.a(int) script-entry push
+//!   dumpworldg <name.txt>         world dump with the player's carried
+//!                                 inventory masked (generator gates)
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -80,6 +82,7 @@ pub enum Cmd {
     CallMaze(i32, i32, i32),
     DumpOver(String),
     CallEntry(u8),
+    DumpWorldG(String),
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -129,6 +132,7 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "callmaze" => Cmd::CallMaze(arg()?.parse()?, arg()?.parse()?, arg()?.parse()?),
             "dumpover" => Cmd::DumpOver(arg()?.to_string()),
             "callentry" => Cmd::CallEntry(arg()?.parse()?),
+            "dumpworldg" => Cmd::DumpWorldG(arg()?.to_string()),
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -227,6 +231,9 @@ pub fn drive(
                 artifacts.insert(name, Artifact::Text(crate::dump::overlays_dump(shell)));
             }
             Cmd::CallEntry(n) => shell.call_entry(n),
+            Cmd::DumpWorldG(name) => {
+                artifacts.insert(name, Artifact::Text(crate::dump::world_dump_gen(shell)));
+            }
         }
     }
     Ok(artifacts)

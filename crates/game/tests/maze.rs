@@ -11,6 +11,12 @@
 //! base + edge-decor + marker layers), the event overlays (exit enter-event,
 //! entry action/leave sentinels), the seeded enemy spawns (the op58-grown
 //! subtype-0 row 7 scamps), and the tag-20 pickup drops.
+//!
+//! The world dump is the GENERATOR variant (`dumpworldg`): the player's
+//! carried inventory, the op76 hud flag, and the dialogue state are masked —
+//! they reflect the non-deterministic unattended L01 fight the drive boots
+//! through (the maze op15 reuses-or-freshly-spawns the fight-chaos player),
+//! NOT anything op47 produces. Verified stable across independent oracle runs.
 
 use game::shell::Shell;
 use game::text::TextMasks;
