@@ -23,11 +23,14 @@ pub fn world_dump(s: &Shell) -> String {
 /// - `hud` (op76 `var_boolean_e`) — a carried flag the maze never sets;
 /// - the DIALOGUE presentation (`speaker`, `dlg`, the wrapped lines) — depends
 ///   on the entry-cell FIRE's 1s-dismiss timing and on lang-overlay load state
-///   (the l01_1b/c "you return" text resolves empty on the real game here).
+///   (the l01_1b/c "you return" text resolves empty on the real game here);
+/// - `respawn` (op71) — at the L02 checkpoint-menu hold it races the
+///   op45(mode 3)/op12 boundary (the cutscene's op71 ran or not depending on
+///   frame timing; the oracle itself drifts run-to-run).
 ///
 /// Everything the generator/chain DOES determine stays gated byte-for-byte:
 /// the map layers, the event overlays, the seeded ENEMY spawns + pickups, the
-/// player's class/stats/pos, and `respawn`/`cam`/`gold`/`lock`.
+/// player's class/stats/pos, and `cam`/`gold`/`lock`.
 pub fn world_dump_gen(s: &Shell) -> String {
     world_dump_inner(s, true)
 }
@@ -113,19 +116,27 @@ fn world_dump_inner(s: &Shell, mask_player_inv: bool) -> String {
     // `hud` (the op76 var_boolean_e flag) and the dialogue state are CARRIED
     // b-flags the maze op47 does not set, so they reflect the non-deterministic
     // pre-maze fight — masked in the generator variant.
-    let (dlg_field, hud_field) = if mask_player_inv {
-        ("<masked>".to_string(), "<masked>".to_string())
+    // `respawn` (op71 var_short_i/j) is masked in the generator variant too:
+    // at the L02 checkpoint-menu hold it RACES the op45(mode 3)/op12 boundary —
+    // the cutscene's op71 either ran (a coord) or not (0,0) depending on frame
+    // timing, non-deterministic on BOTH sides (the oracle drifts run-to-run).
+    let (dlg_field, hud_field, respawn_field) = if mask_player_inv {
+        (
+            "<masked>".to_string(),
+            "<masked>".to_string(),
+            "<masked>".to_string(),
+        )
     } else {
         (
             i32::from(s.world.dialogue.is_some()).to_string(),
             i32::from(s.world.hud_enabled).to_string(),
+            format!("{},{}", s.world.respawn[0], s.world.respawn[1]),
         )
     };
     out.push_str(&format!(
-        "cam={} respawn={},{} gold={} hud={} lock={} speaker={} dlg={} pickups={}\n",
+        "cam={} respawn={} gold={} hud={} lock={} speaker={} dlg={} pickups={}\n",
         s.world.cam_follow,
-        s.world.respawn[0],
-        s.world.respawn[1],
+        respawn_field,
         s.world.gold,
         hud_field,
         i32::from(!s.world.input_unlocked),
