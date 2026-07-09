@@ -493,6 +493,10 @@ impl Shell {
                 self.set_mode(if self.anim == 4 { 21 } else { 8 });
             }
             12 => self.set_mode(0),
+            9 => {} // e.b case 9: `java_lang_String_c(int_b())` reads then
+            // DISCARDS the string (a vestigial resource-name read, e.g.
+            // /oh_font.cml which is not even shipped) — no side effect.
+            16 => self.world.set_overlay(op(0), op(1), op(2), op(3), op(4)),
             14 => self.vm.set_handler(op(0), Some(op(1))),
             28 => self.vm.set_handler(op(0), None),
             15 => {
@@ -732,6 +736,14 @@ impl Shell {
                 }
             }
             76 => self.world.hud_enabled = op(0) == 1,
+            77 => {
+                // e.b(long) case 77: `b.a((byte)4); b.var_boolean_f = false` —
+                // the game-ending credits (mode 4) + clear the game-in-progress
+                // flag so the post-credits menu is the MAIN menu (page 0), not
+                // the in-game pause page (5). Used only by end_15.scr.
+                self.set_mode(4);
+                self.left_gameplay = false; // var_boolean_f = false
+            }
             78 => {
                 if let Some(a) = self.world.actors[op(0) as usize].as_mut() {
                     a.var_byte_z = op(1) as i8;
