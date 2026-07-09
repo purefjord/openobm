@@ -32,4 +32,11 @@ fn l02_opening_matches_the_real_game() {
             _ => panic!("{name} text"),
         }
     }
+    // The port PAUSES at the checkpoint save-menu (op45 `void_f`: mode 3) before
+    // the Jauffre cutscene — op12 + entry 4 do NOT run past the mode-3 halt (the
+    // VM-halt set includes mode 3). This is the settled hold; the oracle modelog
+    // sits at mode 3 here too. (respawn=4300,5900 is the CARRIED L01 anchor —
+    // the loader `void_a(String)` does not reset var_short_i/j — not a cutscene
+    // op71, which is why the world dump masks it.)
+    assert_eq!(s.mode(), 3, "L02 pauses at the op45 checkpoint save menu");
 }
