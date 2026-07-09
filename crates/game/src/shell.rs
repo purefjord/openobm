@@ -2605,6 +2605,14 @@ impl Shell {
         self.world.rng.set_seed(seed);
     }
 
+    /// The `callentry` injection: the real `e.a(int)` script-entry push —
+    /// the exact mechanism an actor's death trigger and the overlay events
+    /// use. Lets a drive run a trigger-gated entry (e.g. the maze boss's
+    /// death entry) without the RNG/wall-clock of a real kill.
+    pub fn call_entry(&mut self, n: u8) {
+        self.vm.push_entry(n);
+    }
+
     /// The op47 native `b.a(int_arr_a(9, row), var_int_arr_g, n, n2)` — also
     /// the `callmaze` injection. Resolves the subtype-9 config row, the
     /// tag-20 pickup list, and the enemy stat row/model exactly like the

@@ -29,6 +29,7 @@
 //!   setseed <n>                   re-base the shared combat/maze RNG
 //!   callmaze <row> <n> <n2>       the op47 native (maze regen; seed first)
 //!   dumpover <name.txt>           the Instrument.dumpOver overlays dump
+//!   callentry <n>                 the real e.a(int) script-entry push
 
 /// MIDP key codes, matching OracleRun.keycode.
 pub fn keycode(k: &str) -> anyhow::Result<i32> {
@@ -78,6 +79,7 @@ pub enum Cmd {
     SetSeed(i64),
     CallMaze(i32, i32, i32),
     DumpOver(String),
+    CallEntry(u8),
 }
 
 /// Parse a script; unknown/oracle-only commands (modelog, …) are skipped
@@ -126,6 +128,7 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "setseed" => Cmd::SetSeed(arg()?.parse()?),
             "callmaze" => Cmd::CallMaze(arg()?.parse()?, arg()?.parse()?, arg()?.parse()?),
             "dumpover" => Cmd::DumpOver(arg()?.to_string()),
+            "callentry" => Cmd::CallEntry(arg()?.parse()?),
             // oracle-only instrumentation (modelog, dump sweeps, …): ignore
             _ => continue,
         });
@@ -223,6 +226,7 @@ pub fn drive(
             Cmd::DumpOver(name) => {
                 artifacts.insert(name, Artifact::Text(crate::dump::overlays_dump(shell)));
             }
+            Cmd::CallEntry(n) => shell.call_entry(n),
         }
     }
     Ok(artifacts)
