@@ -41,28 +41,90 @@ fn all_levels_load_matches_the_real_game() {
     ];
     for lv in levels {
         // Every level's MAP layers + event overlays match byte-for-byte (the
-        // deterministic load). The masked WORLD dump also matches for 9 of 10
-        // levels — including combat levels that drop into unlocked gameplay
-        // with NPCs mid-walk (e.g. l07: 13/21 walking), which the port's
-        // walk/AI sim reproduces exactly. l05 (the Mankar Camoran boss scene,
-        // 18 actors, 10 mid-walk) is the lone exception: 2 of its 18 NPCs land
-        // ~15 units apart after 13s of live combat — a localized walk/action
-        // divergence in a busy scene, not a load defect (the map + overlays +
-        // the other 16 actors are identical). Gated at layers+overlays; the
-        // world diff is a known minor divergence, future work if it matters.
-        let kinds: &[&str] = if lv == "l05" {
-            &["layers", "over"]
-        } else {
-            &["layers", "over", "world"]
-        };
-        for kind in kinds {
+        // deterministic load). The masked WORLD dump also matches — including
+        // combat levels that drop into unlocked gameplay with NPCs mid-walk
+        // (e.g. l07: 13/21 walking): a walking actor's position is a pure
+        // function of accumulated GAME time, so it is frame-cadence-
+        // independent while the world ticks freely.
+        //
+        // l05 (the Mankar Camoran boss scene) needs a 2-field mask (loop #31):
+        // its opening runs a throne-procession walk (op34s toward x=2040) and
+        // then FREEZES the world at an op45 checkpoint (mode 3) with actors 14
+        // + 16 still mid-walk. The walk window between op12 (mode 0) and op45
+        // is FRAME-counted (the VM steps one op per frame), and the original
+        // run() loop has NO sleep — frame duration is repaint+gc cost, i.e.
+        // machine-paced. The walkers' frozen positions are therefore
+        // cadence-dependent state by the game's own construction (two real
+        // handsets would disagree the same way): the oracle's headless frames
+        // gave them ~100 game-ms of walking (pos 2069/2062), the port's fixed
+        // 50ms frames give 50 (2084/2081). Same class as timers/anim cursors —
+        // masked; everything else in the dump stays byte-gated.
+        for kind in ["layers", "over", "world"] {
             let name = format!("{lv}_{kind}.txt");
-            match &arts[&name] {
-                game::script::Artifact::Text(t) => {
-                    assert_eq!(t, &fixture(&name), "{name} differs")
-                }
+            let got = match &arts[&name] {
+                game::script::Artifact::Text(t) => t,
                 _ => panic!("{name} text"),
+            };
+            let want = fixture(&name);
+            if lv == "l05" && kind == "world" {
+                assert_eq!(
+                    mask_walk_frozen_pos(got),
+                    mask_walk_frozen_pos(&want),
+                    "{name} differs beyond the cadence-masked walker positions"
+                );
+                assert_walk_frozen_structure(got);
+            } else {
+                assert_eq!(got, &want, "{name} differs");
             }
         }
+    }
+}
+
+/// Mask the two cadence-frozen walkers' `pos=` field (see the l05 comment in
+/// the test body); every other field on those lines stays byte-compared.
+fn mask_walk_frozen_pos(dump: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for line in dump.lines() {
+        if line.starts_with("actor 14 ") || line.starts_with("actor 16 ") {
+            let start = line.find(" pos=").expect("walker line has pos=");
+            let end = start
+                + 1
+                + line[start + 1..]
+                    .find(' ')
+                    .expect("pos= is not the last field");
+            out.push(format!("{} pos=<cadence>{}", &line[..start], &line[end..]));
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    out.join("\n") + "\n"
+}
+
+/// Pin the masked fields' structure on the PORT dump: both walkers hold their
+/// op34 walk target (the freeze keeps it armed forever — mode 3 halts the
+/// actor loop), sit on the walk row, and have progressed from the spawn
+/// column x=2099 toward the throne column x=2040 without passing it. The
+/// exact x (2084/2081) is the fixed-50ms-cadence value: it changes only if
+/// the script runner's frame dt changes.
+fn assert_walk_frozen_structure(dump: &str) {
+    for (slot, y, walk, x50) in [
+        (14, 2060, "walk=2040,2061", 2084),
+        (16, 2415, "walk=2040,2416", 2081),
+    ] {
+        let line = dump
+            .lines()
+            .find(|l| l.starts_with(&format!("actor {slot} ")))
+            .expect("walker line");
+        assert!(line.contains(walk), "actor {slot} walk target");
+        let pos = line
+            .split(" pos=")
+            .nth(1)
+            .and_then(|s| s.split(' ').next())
+            .expect("pos field");
+        let (px, py) = pos.split_once(',').expect("pos pair");
+        let (px, py): (i32, i32) = (px.parse().unwrap(), py.parse().unwrap());
+        assert_eq!(py, y, "actor {slot} walk row");
+        assert!((2040..=2099).contains(&px), "actor {slot} bounded progress");
+        assert_eq!(px, x50, "actor {slot} at the 50ms-cadence rest position");
     }
 }
