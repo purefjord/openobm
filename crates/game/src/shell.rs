@@ -481,7 +481,9 @@ impl Shell {
                     .assets_dir
                     .join(step.strings[0].trim_start_matches('/'));
                 let bytes = std::fs::read(&map).expect("op8 map resource");
-                self.world.load_map(&bytes).expect("op8 jtm parse");
+                self.world
+                    .load_map(&bytes, &self.vm.tables)
+                    .expect("op8 jtm parse");
                 let model = step.strings[1].clone();
                 self.models.get(&model);
                 self.level_model = Some(model);
@@ -2623,6 +2625,35 @@ impl Shell {
     /// death entry) without the RNG/wall-clock of a real kill.
     pub fn call_entry(&mut self, n: u8) {
         self.vm.push_entry(n);
+    }
+
+    /// The `callhit` injection: ONE real melee swing `h.a(att, tgt, true)`
+    /// on live actors — the deterministic kill for death-path beats (inject
+    /// paused, `setseed` + `sethp tgt 1` first: any hit is lethal and the
+    /// whole RNG stream is the swing's own draws). The deferred death
+    /// events (the `var_byte_k` trigger push, the loot drop) drain
+    /// immediately, mirroring the original's in-call `e.void_a`/drop.
+    pub fn call_hit(&mut self, att: usize, tgt: usize) {
+        let mut events = Vec::new();
+        {
+            let World { actors, rng, .. } = &mut self.world;
+            let mut attacker = actors[att].take().expect("callhit attacker");
+            let mut target = actors[tgt].take().expect("callhit target");
+            formats::combat::melee_attack(
+                &mut attacker,
+                att,
+                &mut target,
+                actors,
+                true,
+                &mut self.vm.tables,
+                &mut events,
+                rng,
+            );
+            actors[att] = Some(attacker);
+            actors[tgt] = Some(target);
+        }
+        self.drain_events(events);
+        self.check_player_death();
     }
 
     /// The op47 native `b.a(int_arr_a(9, row), var_int_arr_g, n, n2)` — also

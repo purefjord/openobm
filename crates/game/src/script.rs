@@ -67,6 +67,8 @@ pub enum Cmd {
     Pause,
     Unpause,
     Teleport(usize, i32, i32),
+    SetHp(usize, i16),
+    CallHit(usize, usize),
     Follow(i32),
     SetFloat(usize, String),
     SetScroll(i16),
@@ -113,6 +115,8 @@ pub fn parse(src: &str) -> anyhow::Result<Vec<Cmd>> {
             "pause" => Cmd::Pause,
             "unpause" => Cmd::Unpause,
             "teleport" => Cmd::Teleport(arg()?.parse()?, arg()?.parse()?, arg()?.parse()?),
+            "sethp" => Cmd::SetHp(arg()?.parse()?, arg()?.parse()?),
+            "callhit" => Cmd::CallHit(arg()?.parse()?, arg()?.parse()?),
             "follow" => Cmd::Follow(arg()?.parse()?),
             "setfloat" => Cmd::SetFloat(arg()?.parse()?, arg()?.to_string()),
             "setscroll" => Cmd::SetScroll(arg()?.parse()?),
@@ -202,6 +206,16 @@ pub fn drive(
                     .ok_or_else(|| anyhow::anyhow!("teleport: empty slot {slot}"))?;
                 formats::set_position(a, x, y);
             }
+            Cmd::SetHp(slot, hp) => {
+                // Instrument.setHp: write var_short_q (current HP) — the
+                // field combat damage lowers. hp<=0 at an unpause = the next
+                // tick runs the real death branch.
+                let a = shell.world.actors[slot]
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("sethp: empty slot {slot}"))?;
+                a.var_short_q = hp;
+            }
+            Cmd::CallHit(att, tgt) => shell.call_hit(att, tgt),
             Cmd::Follow(slot) => shell.world.camera_follow(slot),
             Cmd::SetFloat(slot, text) => {
                 let text = match text.strip_prefix("lang") {

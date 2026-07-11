@@ -309,8 +309,9 @@ impl World {
     /// `layers[0]`… wait — the base grid goes to `b.var_byte_arr_a` (the
     /// COLLISION layer) and the remaining RLE grids into the layer Vector.
     /// Also clears the effects pool and (on the actor side) the level state.
-    /// The parse itself is the validated `formats::jtm`.
-    pub fn load_map(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+    /// The parse itself is the validated `formats::jtm`. Ends in `m()` (the
+    /// actor sweep — see [`World::map_load_actor_sweep`]), hence `tables`.
+    pub fn load_map(&mut self, bytes: &[u8], tables: &Tables) -> anyhow::Result<()> {
         let map = formats::parse_jtm(bytes)?;
         self.map_w = map.width as i32;
         self.map_h = map.height as i32;
@@ -335,7 +336,34 @@ impl World {
         self.pickup_count = 0;
         self.effects.clear_all();
         self.dirty = true;
+        self.map_load_actor_sweep(tables);
         Ok(())
+    }
+
+    /// `b.m()`'s actor tail (b.java:379-386), run at the end of `void_b(String)`:
+    /// null actor slots 1..24, and — if the slot-0 player survives — re-init it
+    /// (`h.a(j)` = the array-wide `var_j_a` back-ref sweep + the player
+    /// re-init, then `h.b(j)` = tile resync). On a first load or an op29 chain
+    /// load the array is already empty here (the `a(String)` script loader ran
+    /// first, nulling every slot incl. 0), so both parts are no-ops and the
+    /// following op15 respawns the player. It only bites on an IN-SCRIPT reload
+    /// — a nested `op23 Call` back to entry 1 with no `a(String)` between, e.g.
+    /// l02_2's Martin-death fail-reload — where the previous instance's actors
+    /// are still live: this is what clears them. `max_actor` is NOT reset (the
+    /// original never touches `var_int_o` in `m()`; the spawner only maxes up).
+    pub fn map_load_actor_sweep(&mut self, tables: &Tables) {
+        for i in 1..self.actors.len() {
+            self.actors[i] = None;
+            self.actor_anims[i] = None;
+        }
+        if self.actors[0].is_some() {
+            for a in self.actors.iter_mut().flatten() {
+                a.var_j_a = -1; // h.a(j): the array-wide aggro back-ref sweep
+            }
+            let p = self.actors[0].as_mut().unwrap();
+            p.player_reset(tables);
+            formats::resync_tiles(p); // h.b(j)
+        }
     }
 
     /// The `a(String)` loader's world reset (b.java:313-348): map layers
