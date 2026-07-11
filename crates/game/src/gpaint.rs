@@ -61,10 +61,14 @@ pub fn draw_model_frame(
         FrameRef::Rect { path, view: f } => {
             let n4 = x + f.off_x;
             let n5 = y + f.off_y;
-            if n4 < SCREEN_W && n5 < SCREEN_H {
+            // The original clips to the 240x320 LCD; every gated paint uses
+            // an LCD-sized Fb, so clipping to fb dims is behavior-identical
+            // there while letting the levelmap tool blit onto a full-map
+            // canvas.
+            if n4 < fb.w && n5 < fb.h {
                 let img = assets.image(&path).expect("frame sheet image");
-                let clip_w = SCREEN_W.min(f.width);
-                let clip_h = SCREEN_H.min(f.height);
+                let clip_w = fb.w.min(f.width);
+                let clip_h = fb.h.min(f.height);
                 for row in 0..clip_h {
                     for col in 0..clip_w {
                         let src_col = if f.flip { f.width - 1 - col } else { col };
@@ -692,4 +696,105 @@ pub fn paint_please_wait(fb: &mut Fb, masks: &TextMasks, models: &mut ModelCache
         (SCREEN_W >> 1) - (aw >> 1),
         (SCREEN_H >> 1) + fh,
     );
+}
+
+/// Full-level map render — a DEBUG/ATLAS tool, not a gated paint. Composes
+/// the same validated draw calls as `base_map` + `paint_gameplay`'s
+/// top-layer/actor interleave, but over the ENTIRE map bounds instead of
+/// the 240x320 viewport (UESP-style whole-level images; the `levelmap`
+/// bin). Read-only over world state apart from the actor take/put the
+/// interleave shares with the gated path.
+#[allow(clippy::too_many_arguments)]
+pub fn render_full_map(
+    world: &mut World,
+    models: &mut ModelCache,
+    assets: &Assets,
+    masks: &TextMasks,
+    lang: &Lang,
+    level_model: &str,
+    level_bg: u32,
+    with_actors: bool,
+) -> Fb {
+    // Canvas bounds over every cell's iso anchor; generous top pad for tall
+    // wall frames (they extend above the anchor), one tile all around.
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    for x in 0..world.map_w {
+        for y in 0..world.map_h {
+            let (ix, iy) = cell_iso(x, y);
+            min_x = min_x.min(ix);
+            min_y = min_y.min(iy);
+            max_x = max_x.max(ix);
+            max_y = max_y.max(iy);
+        }
+    }
+    let (pad_l, pad_t, pad_r, pad_b) = (TILE_W, TILE_H * 8, TILE_W * 2, TILE_H * 6);
+    let img_w = max_x - min_x + TILE_W + pad_l + pad_r;
+    let img_h = max_y - min_y + TILE_H + pad_t + pad_b;
+    let view = [pad_l - min_x, pad_t - min_y];
+    let mut fb = Fb::new(img_w, img_h);
+    fb.fill(level_bg);
+
+    // The base layers (base_map's loop over layers 0..len-1, full range).
+    let model = models.get(level_model);
+    let (lcml, lanim) = (model.cml.clone(), model.anim.clone());
+    for layer_idx in 0..world.layers.len().saturating_sub(1) {
+        for x in 0..world.map_w {
+            for y in 0..world.map_h {
+                let tile = world.layers[layer_idx][(x * world.map_h + y) as usize];
+                if tile == 0 {
+                    continue;
+                }
+                let (ix, iy) = cell_iso(x, y);
+                draw_model_frame(
+                    &mut fb,
+                    assets,
+                    &lcml,
+                    &lanim,
+                    i32::from(tile),
+                    ix + view[0],
+                    iy + view[1],
+                );
+            }
+        }
+    }
+    // The top layer + actors, interleaved per cell (paint_gameplay's order).
+    if !world.layers.is_empty() {
+        let top = world.layers.len() - 1;
+        for x in 0..world.map_w {
+            for y in 0..world.map_h {
+                let tile = world.layers[top][(x * world.map_h + y) as usize];
+                let (ix, iy) = cell_iso(x, y);
+                if tile != 0 {
+                    draw_model_frame(
+                        &mut fb,
+                        assets,
+                        &lcml,
+                        &lanim,
+                        i32::from(tile),
+                        ix + view[0],
+                        iy + view[1],
+                    );
+                }
+                if !with_actors {
+                    continue;
+                }
+                for n6 in 0..world.actors.len() {
+                    let hit = world.actors[n6].as_ref().is_some_and(|a| {
+                        i32::from(a.var_byte_arr_a[0]) == x && i32::from(a.var_byte_arr_a[1]) == y
+                    });
+                    if hit {
+                        let mut a = world.actors[n6].take().unwrap();
+                        let anim = world.actor_anims[n6]
+                            .take()
+                            .expect("live actor has an anim instance");
+                        let cml = models.get(&a.model_name).cml.clone();
+                        draw_actor(&mut fb, assets, &cml, &anim, masks, lang, &mut a, view);
+                        world.actor_anims[n6] = Some(anim);
+                        world.actors[n6] = Some(a);
+                    }
+                }
+            }
+        }
+    }
+    fb
 }

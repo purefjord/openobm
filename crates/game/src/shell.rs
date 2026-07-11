@@ -2556,6 +2556,25 @@ impl Shell {
         self.mode
     }
 
+    /// Render the whole loaded level to one image (the `levelmap` atlas
+    /// tool) — the validated tile/actor draws over full map bounds.
+    pub fn render_level_map(&mut self, with_actors: bool) -> anyhow::Result<crate::fb::Fb> {
+        let level_model = self
+            .level_model
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no level loaded (op8 has not run)"))?;
+        Ok(crate::gpaint::render_full_map(
+            &mut self.world,
+            &mut self.models,
+            &self.assets,
+            &self.masks,
+            &self.lang,
+            &level_model,
+            self.level_bg,
+            with_actors,
+        ))
+    }
+
     /// The unported content boundary the VM hit, if any (a frontend renders
     /// an honest stop screen instead of a broken world). Empty since loop
     /// #22 ported op47 (the L01 sewer maze) — the next boundary would be a
