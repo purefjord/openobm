@@ -758,6 +758,10 @@ impl Shell {
                 let name = step.strings[0].clone();
                 self.loader(&name).expect("op29 script chain");
             }
+            // e.b(long) case 35: reads its one operand and DISCARDS it — a
+            // real no-op (e.java:771-774), the op9 class. Its only use in
+            // all 32 scripts is l04_4r entry 9 (the maze boss reward).
+            35 => {}
             47 => {
                 // e.b(long) case 47: b.a(int_arr_a(9, row), var_int_arr_g,
                 // n, n2) — the procedural maze generator (the L01 sewers).
