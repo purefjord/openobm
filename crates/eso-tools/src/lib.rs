@@ -373,7 +373,19 @@ pub fn dump_scr_exec(store: &AssetStore, res: &str, entry: u8, max_steps: usize)
     writeln!(out, "# exec {res} entry={entry}")?;
     for (i, s) in steps.iter().enumerate() {
         let eff = s.effect(lang.as_ref());
-        writeln!(out, "{i} pc={} op={} {}", s.pc, s.opcode, effect_str(&eff))?;
+        let ops = s
+            .operands
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        writeln!(
+            out,
+            "{i} pc={} op={} ops=[{ops}] {}",
+            s.pc,
+            s.opcode,
+            effect_str(&eff)
+        )?;
     }
     let last = steps.last();
     let result = match last {

@@ -180,6 +180,13 @@ impl GameVm {
         // Section merge (arraycopy row -> table[index]).
         let mut aux_i: Option<Vec<(usize, Vec<i32>)>> = None;
         let mut aux_j: Option<Vec<(usize, Vec<i32>)>> = None;
+        // `e.var_int_e` — the var_int_arr_g append cursor. It resets per
+        // LOAD (with the zeroed array above), NOT per section: multiple
+        // subtype-9 sections CONCATENATE their aux lists (e.java:392
+        // `var_int_arr_g[var_int_e++] = ...`). l04_4r ships three subtype-9
+        // sections ([1,2] + [1,2] + none = four maze pickup drops); the
+        // single-section sewers never exposed the distinction.
+        let mut slots9_cursor = 0usize;
         for sec in &program.sections {
             match sec.subtype {
                 7 => {
@@ -190,10 +197,9 @@ impl GameVm {
                 }
                 9 => {
                     self.merge_row(9, sec.index, &sec.fields)?;
-                    // tag-20 globals append to var_int_arr_g (var_int_e resets
-                    // per load, so indexes restart at 0).
-                    for (i, v) in sec.aux_a.iter().enumerate() {
-                        self.slots9[i] = *v;
+                    for v in sec.aux_a.iter() {
+                        self.slots9[slots9_cursor] = *v;
+                        slots9_cursor += 1;
                     }
                 }
                 5 => {
