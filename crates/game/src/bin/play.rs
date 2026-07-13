@@ -61,14 +61,32 @@ fn midp_key(k: KeyCode) -> Option<i32> {
 
 #[macroquad::main(conf)]
 async fn main() {
-    // arg 1 (optional) = the port root; default = this crate's ../..
-    let root = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    // args (both optional, any order): a path = the port root (default =
+    // this crate's ../..); a "/name.scr" = jump straight into that level
+    // script after a fast boot (custom maps, e.g. /lush.scr).
+    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut jump_script: Option<String> = None;
+    for arg in std::env::args().skip(1) {
+        if arg.starts_with('/') && arg.ends_with(".scr") {
+            jump_script = Some(arg);
+        } else {
+            root = PathBuf::from(arg);
+        }
+    }
     let masks = TextMasks::load(&root.join("tests/fixtures/oracle/text_masks.txt"))
         .expect("text masks fixture");
     let mut shell = Shell::boot(root.join("assets"), masks).expect("shell boot");
+    if let Some(script) = jump_script {
+        // The proven fast pre-roll (logos -> title -> menu -> class fire),
+        // then the op29 native jumps to the requested script.
+        game::script::drive(
+            &mut shell,
+            "timescale 10\nwait 5000\ntap fire\nwait 1000\ntap fire\nwait 500\ntap fire\nwait 20000\n",
+        )
+        .expect("boot pre-roll");
+        game::script::drive(&mut shell, &format!("callscript {script}\nwait 3000\n"))
+            .expect("jump script");
+    }
 
     let mut image = Image::gen_image_color(LCD_W as u16, LCD_H as u16, BLACK);
     let texture = Texture2D::from_image(&image);
