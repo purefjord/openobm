@@ -263,8 +263,13 @@ impl Lcg {
     }
 }
 
-const W: usize = 60;
-const H: usize = 60;
+// The engine's true world-size cap: actor tile bookkeeping is `[i8; 2]`
+// (faithful to the phone's Java bytes), so tile coordinates past 127
+// overflow negative and `collides` walls off (or panics through the
+// unguarded corner samples). 126 keeps every reachable corner sample
+// inside i8 range.
+const W: usize = 126;
+const H: usize = 126;
 
 /// Carve a wobbling dirt trail from `a` to `b`: step toward the target
 /// with sideways jitter, painting the cell + one randomized neighbor
@@ -358,87 +363,40 @@ fn fringe_trails(m: &mut MapGrids) {
     }
 }
 
-/// The lush walking-sim world: a tree-walled meadow with dirt trails
-/// linking a spawn glade, a blossom grove, a ruined marble temple and a
-/// wildflower meadow. No enemies, no pickups, no triggers — just ground,
-/// decor and collision.
-fn build_world() -> MapGrids {
-    let mut m = MapGrids::new(W, H, GRASS);
-    let mut rng = Lcg(0x6C757368); // "lush"
+/// Position-keyed hash (order-independent per-tile rolls).
+fn hash2(x: usize, y: usize, salt: u32) -> u32 {
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA77) ^ salt;
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297A_2D39);
+    h ^= h >> 15;
+    h
+}
 
-    // --- the tree wall: map edge hard-fenced, two jittered tree rings ---
-    for x in 0..W {
-        for y in 0..H {
-            let ring = x.min(y).min(W - 1 - x).min(H - 1 - y);
-            match ring {
-                0 | 1 => {
-                    let i = m.idx(x, y);
-                    m.collision[i] = 1;
-                    if (x + y) % 2 == 0 {
-                        m.top[i] = TREE;
-                    }
-                }
-                2 => {
-                    if rng.below(100) < 55 {
-                        m.set_solid(x, y, TREE);
-                    }
-                }
-                3 => {
-                    if rng.below(100) < 18 {
-                        m.set_solid(x, y, TREE);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
+#[derive(Clone, Copy, PartialEq)]
+enum Biome {
+    Meadow,
+    Grove,
+    DeepForest,
+    Ruins,
+    Hollow,
+}
 
-    // --- the spawn glade: a dirt clearing with a column gate north ---
-    let glade = (30usize, 44usize);
-    for x in 24..37 {
-        for y in 39..50 {
-            let (dx, dy) = (x as i32 - glade.0 as i32, y as i32 - glade.1 as i32);
-            if dx * dx + dy * dy <= 12 {
-                m.set_ground(x, y, DIRT);
-            }
-        }
-    }
-    m.set_solid(27, 40, COLUMN);
-    m.set_solid(33, 40, COLUMN);
-    for (mx, my) in [(26, 47), (34, 46), (31, 49)] {
-        m.set_top(mx, my, MUSHROOMS);
-    }
-
-    // --- the blossom grove (NW): a jittered tree lattice ---
-    for gx in 0..7 {
-        for gy in 0..7 {
-            let (x, y) = (6 + gx * 3, 5 + gy * 3);
-            if rng.below(100) < 82 {
-                let (jx, jy) = (rng.below(2) as usize, rng.below(2) as usize);
-                let (x, y) = (x + jx, y + jy);
-                if m.ground_at(x, y) == GRASS && m.top_at(x, y) == 0 {
-                    m.set_solid(x, y, TREE);
-                }
-            }
-        }
-    }
-    for _ in 0..10 {
-        let (x, y) = (5 + rng.below(21) as usize, 4 + rng.below(21) as usize);
-        if m.ground_at(x, y) == GRASS && m.top_at(x, y) == 0 {
-            m.set_top(x, y, MUSHROOMS);
-        }
-    }
-
-    // --- the ruined temple (NE): a packed-earth floor strewn with broken
-    // slabs (the ts5 checkered tile 112 has black baked above its diamond,
-    // so a contiguous pavement blacks itself out — ruins read better anyway)
-    let (tx0, tx1, ty0, ty1) = (40usize, 53usize, 7usize, 18usize);
+/// A ruined marble temple court centered near `(cx, cy)`: packed-earth
+/// floor strewn with slabs, a colonnade rim, big corner pillars, an altar
+/// and gate posts on the south side.
+fn place_temple(m: &mut MapGrids, rng: &mut Lcg, cx: usize, cy: usize) {
+    let (tx0, tx1, ty0, ty1) = (cx - 7, cx + 6, cy - 6, cy + 5);
     for x in tx0..=tx1 {
         for y in ty0..=ty1 {
             let rim = x == tx0 || x == tx1 || y == ty0 || y == ty1;
             if !(rim && rng.below(100) < 30) {
                 m.set_ground(x, y, DIRT);
             }
+            let i = m.idx(x, y);
+            m.top[i] = 0;
+            m.collision[i] = 0;
         }
     }
     for x in tx0 + 1..tx1 {
@@ -447,9 +405,9 @@ fn build_world() -> MapGrids {
                 continue;
             }
             let roll = rng.below(100);
-            if roll < 22 {
+            if roll < 20 {
                 m.set_top(x, y, RUBBLE[rng.below(RUBBLE.len() as u32) as usize]);
-            } else if roll < 34 {
+            } else if roll < 31 {
                 m.set_top(x, y, SCRATCH);
             }
         }
@@ -473,72 +431,294 @@ fn build_world() -> MapGrids {
     for &(x, y) in &[(tx0, ty0), (tx1, ty0), (tx0, ty1), (tx1, ty1)] {
         m.set_solid(x, y, PILLAR_BIG);
     }
-    // altar + scuffs inside
-    m.set_solid(46, 12, PILLAR_BIG);
-    m.set_top(45, 13, SCRATCH);
-    m.set_top(47, 12, SCRATCH);
-    m.set_top(44, 11, RUBBLE[2]);
-    m.set_top(49, 14, RUBBLE[0]);
-    // gate posts where the trail will arrive
-    m.set_solid(45, ty1 + 1, POST);
-    m.set_solid(48, ty1 + 1, POST);
+    m.set_solid(cx, cy, PILLAR_BIG); // the altar
+    m.set_top(cx - 1, cy + 1, SCRATCH);
+    m.set_top(cx + 1, cy, SCRATCH);
+    m.set_solid(cx - 2, ty1 + 1, POST);
+    m.set_solid(cx + 1, ty1 + 1, POST);
+}
 
-    // --- landmarks: a weathered stone circle + a mushroom fairy ring ---
-    let ring = [
-        (0i32, -3i32),
-        (2, -2),
-        (3, 0),
-        (2, 2),
-        (0, 3),
-        (-2, 2),
-        (-3, 0),
-        (-2, -2),
-    ];
-    for (i, (dx, dy)) in ring.iter().enumerate() {
-        let (x, y) = ((33 + dx) as usize, (13 + dy) as usize);
+const RING8: [(i32, i32); 8] = [
+    (0, -3),
+    (2, -2),
+    (3, 0),
+    (2, 2),
+    (0, 3),
+    (-2, 2),
+    (-3, 0),
+    (-2, -2),
+];
+
+/// A weathered stone circle: alternating stacks and broken columns.
+fn place_circle(m: &mut MapGrids, cx: usize, cy: usize) {
+    for (i, (dx, dy)) in RING8.iter().enumerate() {
+        let (x, y) = ((cx as i32 + dx) as usize, (cy as i32 + dy) as usize);
         if m.top_at(x, y) == 0 {
             m.set_solid(x, y, if i % 2 == 0 { POST } else { COLUMN_SHORT });
         }
-        let (fx, fy) = ((20 + dx * 2 / 3) as usize, (32 + dy * 2 / 3) as usize);
-        if m.ground_at(fx, fy) == GRASS && m.top_at(fx, fy) == 0 {
-            m.set_top(fx, fy, MUSHROOMS);
-        }
     }
-    m.set_top(33, 13, SCRATCH);
-    m.set_top(32, 12, RUBBLE[4]);
+    m.set_top(cx, cy, SCRATCH);
+    m.set_top(cx - 1, cy - 1, RUBBLE[4]);
+}
 
-    // --- the wildflower meadow (SE): lone trees + dense tufts ---
-    for _ in 0..7 {
-        let (x, y) = (38 + rng.below(16) as usize, 34 + rng.below(18) as usize);
+/// A mushroom fairy ring.
+fn place_fairy(m: &mut MapGrids, cx: usize, cy: usize) {
+    for (dx, dy) in RING8.iter() {
+        let (x, y) = (
+            (cx as i32 + dx * 2 / 3) as usize,
+            (cy as i32 + dy * 2 / 3) as usize,
+        );
         if m.ground_at(x, y) == GRASS && m.top_at(x, y) == 0 {
-            m.set_solid(x, y, TREE);
+            m.set_top(x, y, MUSHROOMS);
+        }
+    }
+}
+
+/// The lush OPEN WORLD: 250x250, Voronoi biome regions (meadow, blossom
+/// grove, deep forest, marble ruins, mushroom hollow) around a central
+/// spawn glade, a trunk-road loop with spokes, and landmarks to find.
+/// No enemies, no pickups, no triggers — just a world.
+fn build_world() -> MapGrids {
+    let mut m = MapGrids::new(W, H, GRASS);
+    let mut rng = Lcg(0x6C757368); // "lush"
+    let c = (W as i32 / 2, H as i32 / 2);
+
+    // --- region seeds: a jittered outer ring + inner ring + the center ---
+    let outer_off: [(i32, i32); 8] = [
+        (44, 0),
+        (31, 31),
+        (0, 44),
+        (-31, 31),
+        (-44, 0),
+        (-31, -31),
+        (0, -44),
+        (31, -31),
+    ];
+    let outer_biomes = [
+        Biome::Grove,
+        Biome::DeepForest,
+        Biome::Meadow,
+        Biome::Ruins,
+        Biome::Hollow,
+        Biome::DeepForest,
+        Biome::Grove,
+        Biome::Meadow,
+    ];
+    let inner_off: [(i32, i32); 4] = [(22, 0), (0, 22), (-22, 0), (0, -22)];
+    let inner_biomes = [Biome::Meadow, Biome::Grove, Biome::Hollow, Biome::Ruins];
+    let mut seeds: Vec<(i32, i32, Biome)> = Vec::new();
+    for (i, (dx, dy)) in outer_off.iter().enumerate() {
+        let jx = rng.below(17) as i32 - 8;
+        let jy = rng.below(17) as i32 - 8;
+        seeds.push((c.0 + dx + jx, c.1 + dy + jy, outer_biomes[i]));
+    }
+    for (i, (dx, dy)) in inner_off.iter().enumerate() {
+        let jx = rng.below(13) as i32 - 6;
+        let jy = rng.below(13) as i32 - 6;
+        seeds.push((c.0 + dx + jx, c.1 + dy + jy, inner_biomes[i]));
+    }
+    seeds.push((c.0, c.1, Biome::Meadow));
+
+    // --- the per-tile biome map: nearest seed, noise-ragged borders ---
+    let biome_of = |x: usize, y: usize| -> Biome {
+        let mut best = (i64::MAX, Biome::Meadow);
+        for &(sx, sy, b) in &seeds {
+            let (dx, dy) = (x as i64 - sx as i64, y as i64 - sy as i64);
+            let d = dx * dx + dy * dy + (hash2(x, y, 7) % 350) as i64;
+            if d < best.0 {
+                best = (d, b);
+            }
+        }
+        best.1
+    };
+    let mut biomes = vec![Biome::Meadow; W * H];
+    for x in 0..W {
+        for y in 0..H {
+            biomes[x * H + y] = biome_of(x, y);
         }
     }
 
-    // --- trails: glade -> grove, glade -> temple gate, glade -> meadow ---
-    carve_trail(&mut m, &mut rng, glade, (15, 15));
-    carve_trail(&mut m, &mut rng, (32, 41), (46, 20));
-    carve_trail(&mut m, &mut rng, (33, 45), (46, 44));
-    carve_trail(&mut m, &mut rng, (15, 15), (28, 10));
+    // --- biome fill (order-independent hashes; roads carve through after) ---
+    for x in 5..W - 5 {
+        for y in 5..H - 5 {
+            let roll = hash2(x, y, 3) % 100;
+            match biomes[x * H + y] {
+                Biome::Meadow => {
+                    if hash2(x, y, 11) % 1000 < 8 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+                Biome::Grove => {
+                    if x % 3 == 0 && y % 3 == 0 && roll < 72 {
+                        let h = hash2(x, y, 5);
+                        let (jx, jy) = ((h % 2) as usize, ((h >> 3) % 2) as usize);
+                        m.set_solid(x + jx, y + jy, TREE);
+                    }
+                }
+                Biome::DeepForest => {
+                    // hidden clearings: 8x8 pockets skip the canopy
+                    let pocket = hash2(x / 8, y / 8, 9) % 100 < 16;
+                    if !pocket && roll < 58 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+                Biome::Ruins => {
+                    if hash2(x, y, 13) % 100 < 22 {
+                        m.set_ground(x, y, DIRT);
+                    }
+                    if x % 5 == 0 && y % 5 == 0 && roll < 40 {
+                        let v = if hash2(x, y, 15) % 100 < 12 {
+                            PILLAR_BIG
+                        } else if (x / 5 + y / 5) % 2 == 0 {
+                            COLUMN
+                        } else {
+                            POST
+                        };
+                        m.set_solid(x, y, v);
+                    } else if roll < 10 {
+                        m.set_top(x, y, RUBBLE[(hash2(x, y, 17) as usize) % RUBBLE.len()]);
+                    } else if roll < 16 {
+                        m.set_top(x, y, SCRATCH);
+                    }
+                }
+                Biome::Hollow => {
+                    if roll < 5 {
+                        m.set_top(x, y, MUSHROOMS);
+                    } else if hash2(x, y, 11) % 1000 < 5 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+            }
+        }
+    }
 
-    // --- scatter: tufts + the odd mushroom over plain meadow ---
+    // --- the forest wall: hard edge + fading tree rings ---
+    for x in 0..W {
+        for y in 0..H {
+            let ring = x.min(y).min(W - 1 - x).min(H - 1 - y);
+            let i = m.idx(x, y);
+            match ring {
+                0 | 1 => {
+                    m.collision[i] = 1;
+                    if (x + y) % 2 == 0 {
+                        m.top[i] = TREE;
+                    }
+                }
+                2 => {
+                    if hash2(x, y, 21) % 100 < 60 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+                3 => {
+                    if hash2(x, y, 21) % 100 < 40 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+                4 => {
+                    if hash2(x, y, 21) % 100 < 18 {
+                        m.set_solid(x, y, TREE);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // --- roads: the outer loop, spokes center->inner, inner->outer ---
+    let sp = |s: &(i32, i32, Biome)| (s.0 as usize, s.1 as usize);
+    for i in 0..8 {
+        carve_trail(&mut m, &mut rng, sp(&seeds[i]), sp(&seeds[(i + 1) % 8]));
+    }
+    for i in 8..12 {
+        carve_trail(
+            &mut m,
+            &mut rng,
+            (c.0 as usize, c.1 as usize),
+            sp(&seeds[i]),
+        );
+        carve_trail(&mut m, &mut rng, sp(&seeds[i]), sp(&seeds[(i - 8) * 2]));
+    }
+
+    // --- landmarks (stamped after roads so they stay intact) ---
+    // the grand temple in the outer Ruins region, off the road line
+    let ruins = seeds[3];
+    let (tcx, tcy) = (
+        (ruins.0 + 11).clamp(12, W as i32 - 12) as usize,
+        (ruins.1 + 9).clamp(12, H as i32 - 12) as usize,
+    );
+    place_temple(&mut m, &mut rng, tcx, tcy);
+    // stone circles near the two outer Meadow seeds
+    for &i in &[2usize, 7] {
+        let (sx, sy, _) = seeds[i];
+        place_circle(
+            &mut m,
+            (sx + 8).clamp(8, W as i32 - 8) as usize,
+            (sy - 7).clamp(8, H as i32 - 8) as usize,
+        );
+    }
+    // fairy rings: the Hollow regions + one hiding in the deep forest
+    for &(off, i) in &[((7i32, -6i32), 4usize), ((-6, 7), 10)] {
+        let (sx, sy, _) = seeds[i];
+        place_fairy(
+            &mut m,
+            (sx + off.0).clamp(8, W as i32 - 8) as usize,
+            (sy + off.1).clamp(8, H as i32 - 8) as usize,
+        );
+    }
+    let forest = seeds[5];
+    place_fairy(
+        &mut m,
+        (forest.0 - 4).clamp(8, W as i32 - 8) as usize,
+        (forest.1 + 5).clamp(8, H as i32 - 8) as usize,
+    );
+
+    // --- the spawn glade: dirt clearing + column gate at the center ---
+    let glade = (c.0 as usize, c.1 as usize);
+    for x in glade.0 - 6..=glade.0 + 6 {
+        for y in glade.1 - 6..=glade.1 + 6 {
+            let (dx, dy) = (x as i32 - c.0, y as i32 - c.1);
+            if dx * dx + dy * dy <= 14 {
+                let i = m.idx(x, y);
+                m.ground[i] = DIRT;
+                m.top[i] = 0;
+                m.collision[i] = 0;
+            }
+        }
+    }
+    m.set_solid(glade.0 - 3, glade.1 - 4, COLUMN);
+    m.set_solid(glade.0 + 3, glade.1 - 4, COLUMN);
+    for (mx, my) in [
+        (glade.0 - 4, glade.1 + 3),
+        (glade.0 + 4, glade.1 + 2),
+        (glade.0 + 1, glade.1 + 5),
+    ] {
+        m.set_top(mx, my, MUSHROOMS);
+    }
+
+    // --- scatter: biome-weighted tufts over open grass ---
     for x in 3..W - 3 {
         for y in 3..H - 3 {
             if m.ground_at(x, y) != GRASS || m.top_at(x, y) != 0 || m.collision[m.idx(x, y)] != 0 {
                 continue;
             }
-            let roll = rng.below(100);
-            if roll < 14 {
+            let density = match biomes[x * H + y] {
+                Biome::Meadow => 13,
+                Biome::Grove => 8,
+                Biome::DeepForest => 4,
+                Biome::Ruins => 4,
+                Biome::Hollow => 24,
+            };
+            let roll = rng.below(1000);
+            if roll < density * 10 {
                 m.set_top(x, y, TUFTS[rng.below(TUFTS.len() as u32) as usize]);
-            } else if roll < 15 {
+            } else if roll < density * 10 + 8 {
                 m.set_top(x, y, MUSHROOMS);
             }
         }
     }
     fringe_trails(&mut m);
 
-    // The spawn cell must be open (the glade circle guarantees it, but be
-    // explicit: the engine drops the player exactly here).
+    // The spawn cell must be open (the engine drops the player here).
     let i = m.idx(glade.0, glade.1);
     m.collision[i] = 0;
     m.top[i] = 0;
@@ -606,7 +786,7 @@ fn main() -> Result<()> {
             "/lush.jtm",
             "/lush.scr",
             "lush.png",
-            (30 * 128 + 64, 44 * 128 + 64), // the glade center, tile (30,44)
+            (63 * 128 + 64, 63 * 128 + 64), // the central glade, tile (63,63)
             true,
         ),
         other => anyhow::bail!("unknown mode {other:?} (palette|world)"),
