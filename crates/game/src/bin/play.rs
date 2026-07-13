@@ -25,10 +25,39 @@ use std::path::PathBuf;
 
 const LCD_W: i32 = 240;
 
+struct Args {
+    root: PathBuf,
+    /// "/name.scr" — jump straight into a level script after a fast boot.
+    jump: Option<String>,
+    /// Logical viewport width for the NON-CANONICAL widescreen viewer
+    /// (`wide` = 16:9, `wide10` = 16:10 at the LCD's 320 height). None =
+    /// the pure 240x320 frame only. Menus, dialogues and boundaries always
+    /// fall back to the canonical frame, pillarboxed.
+    wide: Option<i32>,
+}
+
+fn parse_args() -> Args {
+    let mut a = Args {
+        root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        jump: None,
+        wide: None,
+    };
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "wide" | "wide9" => a.wide = Some(LCD_H * 16 / 9), // 568
+            "wide10" => a.wide = Some(LCD_H * 16 / 10),        // 512
+            s if s.starts_with('/') && s.ends_with(".scr") => a.jump = Some(s.to_string()),
+            s => a.root = PathBuf::from(s),
+        }
+    }
+    a
+}
+
 fn conf() -> Conf {
+    let view_w = parse_args().wide.unwrap_or(LCD_W);
     Conf {
         window_title: "The Elder Scrolls Travels: Oblivion — Rust port".into(),
-        window_width: LCD_W * 2,
+        window_width: view_w * 2,
         window_height: LCD_H * 2,
         window_resizable: true,
         ..Default::default()
@@ -61,22 +90,14 @@ fn midp_key(k: KeyCode) -> Option<i32> {
 
 #[macroquad::main(conf)]
 async fn main() {
-    // args (both optional, any order): a path = the port root (default =
-    // this crate's ../..); a "/name.scr" = jump straight into that level
-    // script after a fast boot (custom maps, e.g. /lush.scr).
-    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut jump_script: Option<String> = None;
-    for arg in std::env::args().skip(1) {
-        if arg.starts_with('/') && arg.ends_with(".scr") {
-            jump_script = Some(arg);
-        } else {
-            root = PathBuf::from(arg);
-        }
-    }
-    let masks = TextMasks::load(&root.join("tests/fixtures/oracle/text_masks.txt"))
+    // args (all optional, any order): a path = the port root; "/name.scr"
+    // = jump into that level after a fast boot (custom maps, e.g.
+    // /lush.scr); "wide"/"wide10" = the non-canonical widescreen viewer.
+    let args = parse_args();
+    let masks = TextMasks::load(&args.root.join("tests/fixtures/oracle/text_masks.txt"))
         .expect("text masks fixture");
-    let mut shell = Shell::boot(root.join("assets"), masks).expect("shell boot");
-    if let Some(script) = jump_script {
+    let mut shell = Shell::boot(args.root.join("assets"), masks).expect("shell boot");
+    if let Some(script) = &args.jump {
         // The proven fast pre-roll (logos -> title -> menu -> class fire),
         // then the op29 native jumps to the requested script.
         game::script::drive(
@@ -88,7 +109,8 @@ async fn main() {
             .expect("jump script");
     }
 
-    let mut image = Image::gen_image_color(LCD_W as u16, LCD_H as u16, BLACK);
+    let view_w = args.wide.unwrap_or(LCD_W);
+    let mut image = Image::gen_image_color(view_w as u16, LCD_H as u16, BLACK);
     let texture = Texture2D::from_image(&image);
     texture.set_filter(FilterMode::Nearest);
 
@@ -122,23 +144,55 @@ async fn main() {
             shell.tick(dt.clamp(1, 250));
         }
 
-        let fb = shell.render().expect("paint");
-        let px = fb.pixels();
+        // The wide viewer only composites clean gameplay; menus, dialogues
+        // and boundary screens use the canonical byte-gated frame,
+        // pillarboxed into the wide window.
+        let wide_fb = if args.wide.is_some()
+            && boundary.is_none()
+            && shell.mode() == 0
+            && shell.world.dialogue.is_none()
+        {
+            shell.render_wide(view_w, LCD_H).ok()
+        } else {
+            None
+        };
         let data = image.get_image_data_mut();
-        for y in 0..LCD_H as usize {
-            let row = y * fb.w as usize;
-            for x in 0..LCD_W as usize {
-                let rgb = px[row + x];
-                data[y * LCD_W as usize + x] =
-                    [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 0xFF];
+        match wide_fb {
+            Some(fb) => {
+                let px = fb.pixels();
+                for y in 0..LCD_H as usize {
+                    let row = y * fb.w as usize;
+                    for x in 0..view_w as usize {
+                        let rgb = px[row + x];
+                        data[y * view_w as usize + x] =
+                            [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 0xFF];
+                    }
+                }
+            }
+            None => {
+                let fb = shell.render().expect("paint");
+                let px = fb.pixels();
+                let x0 = ((view_w - LCD_W) / 2) as usize;
+                for y in 0..LCD_H as usize {
+                    let row = y * fb.w as usize;
+                    for x in 0..view_w as usize {
+                        let rgb = if x >= x0 && x < x0 + LCD_W as usize {
+                            px[row + (x - x0)]
+                        } else {
+                            0
+                        };
+                        data[y * view_w as usize + x] =
+                            [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 0xFF];
+                    }
+                }
             }
         }
         texture.update(&image);
 
         // integer-ish scale to the window, centered, aspect kept
         clear_background(BLACK);
-        let scale = (screen_width() / LCD_W as f32).min(screen_height() / LCD_H as f32);
-        let (dw, dh) = (LCD_W as f32 * scale, LCD_H as f32 * scale);
+        let scale = (screen_width() / view_w as f32).min(screen_height() / LCD_H as f32);
+        let (dw, dh) = (view_w as f32 * scale, LCD_H as f32 * scale);
         let (ox, oy) = ((screen_width() - dw) / 2.0, (screen_height() - dh) / 2.0);
         draw_texture_ex(
             &texture,

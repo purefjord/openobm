@@ -20,5 +20,6 @@ pub mod shell;
 pub mod stattab;
 pub mod text;
 pub mod vm;
+pub mod widescreen;
 pub mod world;
 pub mod wrap;

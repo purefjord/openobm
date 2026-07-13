@@ -2579,6 +2579,29 @@ impl Shell {
         ))
     }
 
+    /// NON-CANONICAL widescreen viewer frame (`crate::widescreen`): the
+    /// same validated world state composited at an arbitrary viewport by
+    /// the dev renderer, like `render_level_map`. The byte-gated render is
+    /// [`Self::render`]; this exists for the interactive frontend only and
+    /// is never oracle-compared.
+    pub fn render_wide(&mut self, vw: i32, vh: i32) -> anyhow::Result<crate::fb::Fb> {
+        let level_model = self
+            .level_model
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no level loaded (op8 has not run)"))?;
+        Ok(crate::widescreen::render_wide(
+            &mut self.world,
+            &mut self.models,
+            &self.assets,
+            &self.masks,
+            &self.lang,
+            &level_model,
+            self.level_bg,
+            vw,
+            vh,
+        ))
+    }
+
     /// The unported content boundary the VM hit, if any (a frontend renders
     /// an honest stop screen instead of a broken world). Empty since loop
     /// #22 ported op47 (the L01 sewer maze) — the next boundary would be a

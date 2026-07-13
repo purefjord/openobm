@@ -233,7 +233,7 @@ fn resolve_floating(lang: &Lang, s: &str) -> (String, bool, bool) {
 /// pose sprite, the enemy health bar, the floating damage text (color/rise
 /// state initialized on first draw), and the dialogue-facing bubble.
 #[allow(clippy::too_many_arguments)]
-fn draw_actor(
+pub fn draw_actor(
     fb: &mut Fb,
     assets: &Assets,
     cml: &Cml,
