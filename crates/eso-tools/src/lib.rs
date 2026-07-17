@@ -14,6 +14,19 @@ use anyhow::{Context, Result};
 use formats::vm::StepKind;
 use formats::{parse_cml, parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm, Tables};
 
+/// The custom `mapforge`-authored assets that live alongside the original
+/// game assets (`/lush.*` open-world sim, `/palette.*` biome swatch). They are
+/// NOT part of the original binary, so the game-census summaries
+/// (`summarize_jtm`/`summarize_cml`/`scr_coverage`) skip them — those tools
+/// digest the ORIGINAL asset set (a new custom asset surfaces via the golden
+/// count assert, prompting an update here).
+fn is_original_asset(res: &str) -> bool {
+    !matches!(
+        res,
+        "/lush.jtm" | "/lush.scr" | "/palette.jtm" | "/palette.scr"
+    )
+}
+
 /// FNV-1a 64-bit hash — small, dependency-free, deterministic across platforms.
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -60,7 +73,11 @@ pub fn dump_jtm(store: &AssetStore, names: &[String]) -> Result<String> {
 /// bytes consumed, and a hash of the full canonical dump.
 pub fn summarize_cml(store: &AssetStore) -> Result<String> {
     let mut out = String::new();
-    for res in store.list("cml")? {
+    for res in store
+        .list("cml")?
+        .into_iter()
+        .filter(|r| is_original_asset(r))
+    {
         let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
         let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
         let groups: usize = cml.records.iter().map(|r| r.anim_groups.len()).sum();
@@ -111,7 +128,11 @@ pub fn dump_jtm_flat(store: &AssetStore, name: &str) -> Result<String> {
 /// Compact `.jtm` summary for snapshotting: dims + per-layer hash.
 pub fn summarize_jtm(store: &AssetStore) -> Result<String> {
     let mut out = String::new();
-    for res in store.list("jtm")? {
+    for res in store
+        .list("jtm")?
+        .into_iter()
+        .filter(|r| is_original_asset(r))
+    {
         let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
         let map = parse_jtm(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
         write!(
@@ -295,7 +316,11 @@ pub fn scr_coverage(store: &AssetStore) -> Result<String> {
     let mut seen = [0u64; 256];
     let mut scripts = 0u32;
     let mut unknown_hits = 0u64;
-    for res in store.list("scr")? {
+    for res in store
+        .list("scr")?
+        .into_iter()
+        .filter(|r| is_original_asset(r))
+    {
         let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
         let program = parse_scr(&bytes).map_err(|e| anyhow::anyhow!("parsing {res}: {e}"))?;
         scripts += 1;

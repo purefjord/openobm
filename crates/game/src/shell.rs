@@ -466,7 +466,22 @@ impl Shell {
         match step.opcode {
             2 | 11 => {} // return / wait: handled by GameVm
             60 => {}     // key gate: set by GameVm
-            23 => {}     // call: handled by ScriptVm's control flow
+            // e.b(long) case 61: `b.a((byte)9)` (mode 9, the outro text). Used
+            // in exactly ONE place — l12_12.scr's exit region e8 = op61 THEN
+            // op29 -> /end_15.scr — where its mode-9 is DEAD: the VM's very next
+            // op (op29) loads end_15, whose op12 resets to mode 0, before the
+            // run loop ever samples mode 9. It is a NO-OP in effect: setting
+            // mode 9 would only STALL the one-op-per-frame VM (the run loop's
+            // e.a step is gated `m != 3,10,9,13`, b.java:1312, so a mode-9 set
+            // by op61 blocks the following op29), and the real game
+            // observably reaches end_15 with NO persistent mode 9. First
+            // EXERCISED here (the load gates never fire l12's exit region) — a
+            // real coverage item, the op9/16/77 class (loop #29). The outro
+            // (mode 9) proper is reached via op56+the menu, gated separately
+            // (loop #21). cases 62/63: bare `return;` in the original
+            // (e.java:974-979), the op9 no-op class.
+            61..=63 => {}
+            23 => {} // call: handled by ScriptVm's control flow
             3 => {
                 // b.g(null); b.f(text); b.i() — a modal dialogue with the
                 // speaker cleared.
@@ -2558,6 +2573,12 @@ impl Shell {
 
     pub fn mode(&self) -> i8 {
         self.mode
+    }
+
+    /// `b.var_boolean_f` — the game-in-progress flag. op77 (the game end)
+    /// clears it so the post-credits menu is the MAIN menu (page 0).
+    pub fn left_gameplay(&self) -> bool {
+        self.left_gameplay
     }
 
     /// Render the whole loaded level to one image (the `levelmap` atlas

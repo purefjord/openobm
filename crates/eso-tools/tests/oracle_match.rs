@@ -25,6 +25,21 @@ fn assets() -> AssetStore {
     AssetStore::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets"))
 }
 
+/// The asset names the oracle fixture covers, in fixture order — parsed
+/// from its `# <ext> /name` section headers. The assets dir also holds
+/// CUSTOM mapforge maps (`/lush.jtm`, `/palette.jtm`, …) that have no
+/// oracle fixture (they aren't part of the original binary); dumping the
+/// whole dir would append them and break the byte-compare. Driving the
+/// dump from the fixture's own header list keeps these original-fidelity
+/// tests scoped to the original assets, whatever custom maps exist.
+fn original_names(ext: &str, fixture_name: &str) -> Vec<String> {
+    let prefix = format!("# {ext} ");
+    oracle(fixture_name)
+        .lines()
+        .filter_map(|l| l.strip_prefix(&prefix).map(str::to_string))
+        .collect()
+}
+
 fn fixture_path(name: &str) -> String {
     format!(
         "{}/../../tests/fixtures/oracle/{name}",
@@ -60,7 +75,8 @@ fn assert_identical(rust: &str, oracle: &str, what: &str) {
 
 #[test]
 fn jtm_matches_oracle() {
-    let rust = dump_jtm(&assets(), &[]).expect("rust jtm dump");
+    let rust =
+        dump_jtm(&assets(), &original_names("jtm", "jtm_canonical.txt")).expect("rust jtm dump");
     assert_identical(&rust, &oracle("jtm_canonical.txt"), "jtm");
 }
 
@@ -78,7 +94,8 @@ fn cml_matches_oracle() {
 
 #[test]
 fn scr_loader_matches_oracle() {
-    let rust = dump_scr(&assets(), &[]).expect("rust scr dump");
+    let rust =
+        dump_scr(&assets(), &original_names("scr", "scr_canonical.txt")).expect("rust scr dump");
     assert_identical(&rust, &oracle("scr_canonical.txt"), "scr");
 }
 
