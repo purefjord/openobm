@@ -28,44 +28,13 @@ fn fixture(name: &str) -> String {
         .replace("\r\n", "\n")
 }
 
-/// The two Cloud Ruler opens (b0 = l06_6_cr, b14 = l07_7_cr) freeze
-/// Martin's 22-unit op41 walk after ONE mode-0 frame (op12 -> op45 is a
-/// one-op window) — the loop-31 l05 class: the distance covered is
-/// frame-cadence-dependent (the port's fixed 50ms covers 20 units ->
-/// x=1307; the oracle's ~100 game-ms headless frame clamps at the 1305
-/// target; real handsets would disagree the same way). Mask ONLY his
-/// `pos=`; every other field stays byte-compared, and the exact port
-/// value is pinned structurally below.
-fn mask_martin_pos(dump: &str) -> String {
-    let mut out: Vec<String> = Vec::new();
-    for line in dump.lines() {
-        if line.starts_with("actor 1 ") {
-            let start = line.find(" pos=").expect("Martin line has pos=");
-            let end = start
-                + 1
-                + line[start + 1..]
-                    .find(' ')
-                    .expect("pos= is not the last field");
-            out.push(format!("{} pos=<cadence>{}", &line[..start], &line[end..]));
-        } else {
-            out.push(line.to_string());
-        }
-    }
-    out.join("\n") + "\n"
-}
-
-/// Pin the masked field on the PORT dump: Martin holds the armed walk
-/// target, frozen at the exact fixed-50ms-cadence x.
-fn assert_martin_frozen(dump: &str, x50: i32) {
-    let line = dump
-        .lines()
-        .find(|l| l.starts_with("actor 1 "))
-        .expect("Martin line");
-    assert!(
-        line.contains(&format!(" pos={x50},936 walk=1305,936")),
-        "Martin frozen at the 50ms-cadence x: {line}"
-    );
-}
+// The two Cloud Ruler opens (b0 = l06_6_cr, b14 = l07_7_cr) freeze
+// Martin's 22-unit op41 walk after ONE mode-0 frame (op12 -> op45 is a
+// one-op window) — the loop-31 l05 class: the distance covered is
+// frame-cadence-dependent. The drive loads both opens under `framepace
+// 50` (the 2026-07 pacer pins the oracle's frame dt to the port's fixed
+// 50ms tick), so Martin freezes at the port's exact x=1307 on both sides
+// and the dumps are byte-exact — the old mask_martin_pos era is over.
 
 #[test]
 fn l06_chain_beats_match_the_real_game() {
@@ -113,18 +82,7 @@ fn l06_chain_beats_match_the_real_game() {
     ] {
         match &arts[name] {
             game::script::Artifact::Text(t) => {
-                // The two Cloud Ruler checkpoint opens carry Martin's
-                // cadence-frozen walk (see mask_martin_pos).
-                if name == "b0_world.txt" || name == "b14_world.txt" {
-                    assert_martin_frozen(t, 1307);
-                    assert_eq!(
-                        mask_martin_pos(t),
-                        mask_martin_pos(&fixture(&format!("l06b_{name}"))),
-                        "{name} differs"
-                    );
-                } else {
-                    assert_eq!(t, &fixture(&format!("l06b_{name}")), "{name} differs")
-                }
+                assert_eq!(t, &fixture(&format!("l06b_{name}")), "{name} differs")
             }
             _ => panic!("{name} text"),
         }
