@@ -2278,7 +2278,7 @@ impl Shell {
     }
 
     /// `b.g()` (b.java:2845) — write the `ESO` record from the live state
-    /// (progress flags + sound flag + the level-script name + the player
+    /// (key bindings + sound flag + the level-script name + the player
     /// blob, `active` bits recomputed) into the in-memory save slot.
     fn save_game(&mut self) {
         let blob = crate::save::build_save(
@@ -2308,7 +2308,7 @@ impl Shell {
     }
 
     /// `b.h()` = `b.b(true)` (b.java:2900) — load the `ESO` record: restore the
-    /// progress + sound flags, mode 6, then (if a player is stored) re-run the
+    /// key bindings + sound flag, mode 6, then (if a player is stored) re-run the
     /// loader on the saved level-script name and install the restored player
     /// into slot 0. The subsequent level choreography spawns the world around
     /// the reused `var_j_a`, exactly like a fresh class fire.
@@ -2339,6 +2339,48 @@ impl Shell {
             self.world.player_persists = true;
         }
         Ok(())
+    }
+
+    /// The ctor-time `b(false)` (b.java:194 → 2900-24) — install a persisted
+    /// `ESO` record at boot: fill the slot, restore the key bindings + the
+    /// sound flag, and (if a player is stored) set the level-script name,
+    /// the saved gold, and pre-deserialize the player into slot 0 WITHOUT
+    /// running the loader (the `bl == false` path skips `void_a`; the
+    /// deserialization itself runs either way — b.java:2924). This is what
+    /// keeps a later settings-only `g()` (Save Changes, the dead Sound
+    /// toggle) from silently wiping the persisted player.
+    ///
+    /// The original also flips mode 6 + repaints inside `b(bool)`, but at
+    /// ctor time that transient is overwritten by the startup loader before
+    /// anything paints; the port installs AFTER `boot()` armed the chain, so
+    /// replicating the write would clobber the boot mode rather than
+    /// reproduce an unobservable flicker — skipped, net-effect faithful.
+    /// A corrupt blob is rejected (`Err`) and leaves the shell untouched.
+    pub fn install_save(&mut self, blob: Vec<u8>) -> anyhow::Result<()> {
+        let save = formats::parse_save(&blob).map_err(|e| anyhow::anyhow!("save parse: {e}"))?;
+        self.bindings = [
+            i32::from(save.flags[0]),
+            i32::from(save.flags[1]),
+            i32::from(save.flags[2]),
+        ];
+        self.bool_o = save.bool_o != 0;
+        if let Some(sp) = save.player {
+            let name = String::from_utf8_lossy(&sp.name).into_owned();
+            // b.var_int_b = the saved gold (h.a(byte[],int) writes it back).
+            self.world.gold = i32::from(sp.actor.global_int_b);
+            let player = crate::save::restore_actor(&sp.actor, &mut self.models, &self.vm.tables);
+            self.level_script = name;
+            self.world.actors[0] = Some(player);
+        }
+        self.save_slot = Some(blob);
+        Ok(())
+    }
+
+    /// The in-memory `ESO` slot (record 1) — the frontend's persistence
+    /// watcher reads it each frame and mirrors changes to disk. `None` until
+    /// the first `g()`/install (the wiped-RMS baseline).
+    pub fn save_blob(&self) -> Option<&[u8]> {
+        self.save_slot.as_deref()
     }
 
     /// `b.c()` (javap 16071) — the YES/exit native: mode 12 (terminal — the

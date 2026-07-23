@@ -294,7 +294,7 @@ fn save_roundtrips_the_real_blob() {
     );
     // Sanity on the captured contents (the L01 Champion save).
     let p = save.player.expect("the hold has a live player");
-    assert_eq!(save.flags, [55, 57, 51], "progress bytes '793'");
+    assert_eq!(save.flags, [55, 57, 51], "default key bindings '7','9','3'");
     assert_eq!(&p.name, b"/l01_1.scr", "the saved level-script name");
     assert_eq!(&p.actor.model_name, b"/oh_pc.cml");
     assert_eq!(

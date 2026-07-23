@@ -97,6 +97,21 @@ async fn main() {
     let masks = TextMasks::load(&args.root.join("tests/fixtures/oracle/text_masks.txt"))
         .expect("text masks fixture");
     let mut shell = Shell::boot(args.root.join("assets"), masks).expect("shell boot");
+
+    // RecordStore persistence (frontend-owned; the shell stays pure): the
+    // `ESO` record lives in playdata/eso.bin. Install = the ctor's b(false).
+    // DISABLED for /x.scr jump sessions — a custom-map save must not clobber
+    // the real playthrough's record, and a present save would divert the
+    // blind pre-roll taps into the New-Game overwrite confirm (m16).
+    let persist = args.jump.is_none();
+    let save_path = args.root.join("playdata/eso.bin");
+    if persist {
+        if let Some(blob) = game::save::read_save_file(&save_path) {
+            shell.install_save(blob).expect("read_save_file validated");
+        }
+    }
+    let mut written: Option<Vec<u8>> = shell.save_blob().map(<[u8]>::to_vec);
+
     if let Some(script) = &args.jump {
         // The proven fast pre-roll (logos -> title -> menu -> class fire),
         // then the op29 native jumps to the requested script.
@@ -142,6 +157,17 @@ async fn main() {
             // one monster tick can't fast-forward timers unrealistically.
             let dt = (get_frame_time() * 1000.0) as i32;
             shell.tick(dt.clamp(1, 250));
+        }
+
+        // Mirror the ESO slot to disk when g() rewrote it (RecordStore
+        // semantics). A failed write (AV/indexer holding the file) is
+        // skipped and retried next frame — never a crash.
+        if persist && shell.save_blob() != written.as_deref() {
+            if let Some(blob) = shell.save_blob() {
+                if game::save::write_save_file(&save_path, blob).is_ok() {
+                    written = Some(blob.to_vec());
+                }
+            }
         }
 
         // The wide viewer only composites clean gameplay; menus, dialogues

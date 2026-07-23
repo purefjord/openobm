@@ -47,8 +47,9 @@ pub fn build_save_actor(p: &Actor, gold: i32, tables: &formats::Tables) -> SaveA
     }
 }
 
-/// `b.g()` (b.java:2845) — serialize the whole `ESO` record: the progress
-/// flags (`var_byte_arr_f`), the sound flag (`bool_o`), then (if a player
+/// `b.g()` (b.java:2845) — serialize the whole `ESO` record: the key
+/// bindings (`var_byte_arr_f` — the quick-key table Custom Controls edits,
+/// NOT progress flags), the sound flag (`bool_o`), then (if a player
 /// exists) the level-script name (`var_java_lang_String_c`) + the actor blob.
 pub fn build_save(
     bindings: [i32; 3],
@@ -123,4 +124,31 @@ pub fn restore_actor(
     p.class_progression(tables); // h.f
     p.var_byte_arr_a = [0, 0];
     p
+}
+
+/// Read a persisted `ESO` record file for the `play` frontend. Missing,
+/// unreadable, or unparseable (corrupt/truncated — the file is
+/// user-editable) all yield `None` = the wiped-RMS baseline. Persistence is
+/// frontend-owned: the parity suites never touch these helpers.
+pub fn read_save_file(path: &std::path::Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    // parse_save is lenient (trailing junk, odd player bytes) — require the
+    // exact serialize round-trip a genuine record always satisfies (M9).
+    let save = formats::parse_save(&bytes).ok()?;
+    (formats::serialize_save(&save) == bytes).then_some(bytes)
+}
+
+/// Write the `ESO` record file atomically: temp file in the same directory
+/// (same volume, so the rename can't cross filesystems), then rename over
+/// the target (`MOVEFILE_REPLACE_EXISTING` semantics on Windows). Returns
+/// `Err` instead of panicking — a transiently locked file (AV/indexer) is
+/// the caller's cue to retry next frame, never to crash the window.
+pub fn write_save_file(path: &std::path::Path, blob: &[u8]) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("save path has no parent directory"))?;
+    std::fs::create_dir_all(dir)?;
+    let tmp = path.with_extension("bin.tmp");
+    std::fs::write(&tmp, blob)?;
+    std::fs::rename(&tmp, path)
 }

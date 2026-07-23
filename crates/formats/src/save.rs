@@ -7,7 +7,9 @@
 //!
 //! Top-level layout:
 //! ```text
-//! 3 bytes : var_byte_arr_f progress flags {55,57,51} initial
+//! 3 bytes : var_byte_arr_f KEY BINDINGS (the quick-key table Custom
+//!           Controls edits — not progress flags), defaults {55,57,51}
+//!           = keys '7','9','3'
 //! u8      : bool_o flag
 //! u8      : player present? (0/1)
 //! if present:

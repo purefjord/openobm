@@ -12,3 +12,6 @@ Cargo.lock.bak
 
 # parity harness scratch (regenerated on mismatch, never committed)
 /target/parity
+
+# the play frontend's persisted ESO record (the user's own save — never commit)
+/playdata
