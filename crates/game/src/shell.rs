@@ -214,8 +214,10 @@ pub struct Shell {
     /// loader; the save writes it as the record "name", the load re-runs the
     /// loader on it).
     level_script: String,
-    /// `var_boolean_o` — the sound flag (persisted; the Sound toggle is out of
-    /// slice, so it stays false).
+    /// `var_boolean_o` — the sound flag (persisted in the record; toggled
+    /// only by the DEAD lang-4 fire branch — `l()` never builds a "Sound:"
+    /// item in this SKU and the game ships no audio, so in real play it
+    /// stays false; see docs/road-to-1.0.md).
     bool_o: bool,
     /// The `ESO` RecordStore, modeled as the in-memory record-1 blob. `None` =
     /// no save (`boolean_b()` false — the wiped-RMS baseline until `g()`).
@@ -2290,6 +2292,15 @@ impl Shell {
         self.save_slot = Some(blob);
     }
 
+    /// The Sound-toggle branch body (b.java:1954-56): `o = !o; l(); g();`.
+    /// Unreachable through real menus (the deadness-invariant test pins
+    /// that) — kept faithful for the branch-level 1:1.
+    fn sound_toggle(&mut self) {
+        self.bool_o = !self.bool_o;
+        self.l();
+        self.save_game();
+    }
+
     /// `b.boolean_b()` (b.java:2875) — is there a saved player? The `l()` menu
     /// build gates "Load Game" / the New Game overwrite confirm on it.
     fn has_save(&self) -> bool {
@@ -2389,7 +2400,15 @@ impl Shell {
         let item = self.pages[page as usize][self.cursors[page as usize]].clone();
         let is = |id: u16| item == self.lang.get(id);
         if item.starts_with(self.lang.get(4)) && !self.lang.get(4).is_empty() {
-            panic!("Sound toggle (o:Z + l() + g()) not ported (out of slice)");
+            // The Sound toggle (b.java:1953-56) — DEAD CODE in this SKU:
+            // `l()` never builds a lang-4 ("Sound:") item, the jar ships no
+            // audio assets, and no class references any media API (see
+            // docs/road-to-1.0.md, the silence finding). Transcribed
+            // faithfully anyway — vestigial Vir2L engine code: flip `o`,
+            // rebuild the menus (BEFORE the write — order is observable via
+            // the Load-Game insertion), write the record. No mode change,
+            // no cursor move.
+            self.sound_toggle();
         } else if is(19) {
             // Save Game (2093): g() writes the record, e[k]=2, mode 13.
             self.save_game();
@@ -2792,6 +2811,19 @@ impl Shell {
     pub fn enter_save_screen_for_test(&mut self) {
         self.save_game();
         self.set_mode(13);
+    }
+
+    /// Fire the (dead) Sound-toggle branch directly — no tap can reach it
+    /// (`l()` never builds a lang-4 item in this SKU), so its behavior test
+    /// calls the real branch body here.
+    pub fn sound_toggle_for_test(&mut self) {
+        self.sound_toggle();
+    }
+
+    /// The `l()`-built menu page table — the deadness-invariant test walks
+    /// every built item (no label may ever prefix-match lang 4).
+    pub fn menu_pages(&self) -> &[Vec<String>] {
+        &self.pages
     }
 
     /// The text-page scroll `g:S` — read/set for the fixed-scroll anchors

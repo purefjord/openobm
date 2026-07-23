@@ -115,6 +115,15 @@ this milestone — never behind the byte-identical gate. Masks (e.g. for the
 frames and the deterministic schedule lands on a known one. Fixtures under
 `tests/fixtures/oracle/frames/` are regenerated only from **our** oracle.
 
+## Audio: none — the original is silent
+
+Verified against the real bytecode (2026-07-23): no class in the jar
+references `javax.microedition.media` (or any vendor audio API), the jar
+ships zero audio assets, and the menu build never surfaces the vestigial
+"Sound:" toggle (its fire branch is dead code, ported faithfully and pinned
+by `tests/sound_toggle.rs`). A 1:1 port of a silent game is silent — audio
+is out of scope by *fidelity*, not omission. See `docs/road-to-1.0.md`.
+
 ## Verified corrections to `spec.txt`
 
 Checked against the decompiled source / bytecode (the spec said to trust but verify):
