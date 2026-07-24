@@ -2355,9 +2355,19 @@ impl Shell {
     /// anything paints; the port installs AFTER `boot()` armed the chain, so
     /// replicating the write would clobber the boot mode rather than
     /// reproduce an unobservable flicker — skipped, net-effect faithful.
-    /// A corrupt blob is rejected (`Err`) and leaves the shell untouched.
+    ///
+    /// This is the port's one **untrusted** entry point: `playdata/eso.bin`
+    /// is a user-editable file, so a structurally valid record can still be
+    /// semantically hostile (a model name pointing out of the asset root, an
+    /// out-of-range class or item id). Everything the restore assumes is
+    /// checked by [`crate::save::validate_restorable`] BEFORE any shell state
+    /// is written, so a rejected blob leaves the shell exactly as it was —
+    /// both a corrupt blob and a hostile one are `Err`, never a panic.
     pub fn install_save(&mut self, blob: Vec<u8>) -> anyhow::Result<()> {
         let save = formats::parse_save(&blob).map_err(|e| anyhow::anyhow!("save parse: {e}"))?;
+        if let Some(sp) = &save.player {
+            crate::save::validate_restorable(&sp.actor, &mut self.models, &self.vm.tables)?;
+        }
         self.bindings = [
             i32::from(save.flags[0]),
             i32::from(save.flags[1]),

@@ -107,7 +107,16 @@ async fn main() {
     let save_path = args.root.join("playdata/eso.bin");
     if persist {
         if let Some(blob) = game::save::read_save_file(&save_path) {
-            shell.install_save(blob).expect("read_save_file validated");
+            // The file is user-editable: `read_save_file` gates its structure,
+            // `install_save` its semantics. A record that clears the first but
+            // fails the second is treated exactly like a corrupt one — the
+            // wiped-RMS baseline (no save) — with a loud note, never a crash.
+            if let Err(e) = shell.install_save(blob) {
+                eprintln!(
+                    "warning: ignoring the saved game at {} — {e}",
+                    save_path.display()
+                );
+            }
         }
     }
     let mut written: Option<Vec<u8>> = shell.save_blob().map(<[u8]>::to_vec);

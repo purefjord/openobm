@@ -120,6 +120,35 @@ impl Model {
     }
 }
 
+/// Resolve a resource name to a path that cannot escape the asset root.
+///
+/// Resource names are MIDP-style absolute (`/oh_pc.cml`) and the loader
+/// strips the leading `/` before joining — but `Path::join` with an
+/// otherwise-absolute path (`C:\...`, a UNC prefix) REPLACES the base
+/// entirely, and a `..` component walks out of it. Every shipped name is a
+/// plain filename, so requiring all-`Normal` components changes nothing on
+/// the canonical path; it exists for names that arrive from the
+/// user-editable save record.
+fn safe_relative(name: &str) -> anyhow::Result<PathBuf> {
+    let rel = name.trim_start_matches('/');
+    if rel.is_empty() {
+        anyhow::bail!("empty resource name");
+    }
+    // Backslash is a separator on Windows but an ordinary character
+    // elsewhere — reject it outright so the check can't depend on the host.
+    if rel.contains('\\') {
+        anyhow::bail!("resource name {name:?} contains a backslash");
+    }
+    let path = std::path::Path::new(rel);
+    if !path
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
+        anyhow::bail!("resource name {name:?} is not a plain relative path");
+    }
+    Ok(path.to_path_buf())
+}
+
 /// The shared per-model animation cache (`g`'s `d`-instance cache).
 #[derive(Default)]
 pub struct ModelCache {
@@ -136,16 +165,34 @@ impl ModelCache {
     }
 
     /// `g.a(String)` — load-or-get the shared model for a resource name.
+    ///
+    /// Panics on a missing or unparseable resource: on the canonical path a
+    /// bad model name is a transcription bug, and the panic is the fidelity
+    /// tripwire (the port audit's ruling — the canonical path keeps its
+    /// panics). Names that came from OUTSIDE the shipped assets — today only
+    /// the user-editable save file — must clear [`Self::try_load`] first.
     pub fn get(&mut self, name: &str) -> &mut Model {
-        if !self.models.contains_key(name) {
-            let path = self.assets_dir.join(name.trim_start_matches('/'));
-            let bytes = std::fs::read(&path)
-                .unwrap_or_else(|e| panic!("model resource {}: {e}", path.display()));
-            let cml = parse_cml(&bytes).expect("model cml parse");
-            let anim = Anim::from_cml(&cml);
-            self.models.insert(name.to_string(), Model { anim, cml });
+        if let Err(e) = self.try_load(name) {
+            panic!("{e}");
         }
         self.models.get_mut(name).unwrap()
+    }
+
+    /// The fallible half of [`Self::get`]: ensure `name` is cached, reporting
+    /// a bad resource name as `Err` instead of a panic. This is the
+    /// validate-then-trust gate for untrusted model names — after it returns
+    /// `Ok` the entry is cached, so the following `get` cannot fail.
+    pub fn try_load(&mut self, name: &str) -> anyhow::Result<()> {
+        if self.models.contains_key(name) {
+            return Ok(());
+        }
+        let path = self.assets_dir.join(safe_relative(name)?);
+        let bytes = std::fs::read(&path)
+            .map_err(|e| anyhow::anyhow!("model resource {}: {e}", path.display()))?;
+        let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("model cml parse: {e}"))?;
+        let anim = Anim::from_cml(&cml);
+        self.models.insert(name.to_string(), Model { anim, cml });
+        Ok(())
     }
 
     /// The actor factory's box extent: `g.a(d, 1)` — group-1 current-frame width.

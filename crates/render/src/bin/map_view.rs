@@ -130,10 +130,11 @@ async fn main() {
             None => "tile (-,-)".to_string(),
         };
         draw_text(
-            &format!(
+            format!(
                 "{res}  {}x{}  {}  [arrows/WASD pan]",
                 map.width, map.height, readout
-            ),
+            )
+            .as_str(),
             10.0,
             22.0,
             22.0,

@@ -77,6 +77,70 @@ pub fn has_save(slot: Option<&[u8]>) -> bool {
     slot.is_some_and(|b| b.get(4) == Some(&1))
 }
 
+/// The inventory tag's kind byte -> the stat-table subtype its id indexes
+/// (weapons 4, armor 1, consumables 2). Shared by [`restore_actor`] and
+/// [`validate_restorable`] so the two can never drift apart.
+fn item_subtype(kind: i32) -> Option<u8> {
+    match kind {
+        0 => Some(4),
+        1 => Some(1),
+        2 => Some(2),
+        _ => None,
+    }
+}
+
+/// Validate a save-actor at the **untrusted boundary** — everything
+/// [`restore_actor`] and the `h.a`/`h.f` transcription beneath it assume
+/// about a record handed to them. Returns `Err` where the restore would
+/// otherwise panic, so a hostile `playdata/eso.bin` degrades to "no save"
+/// instead of taking down the window at boot.
+///
+/// This is deliberately a *separate* pass rather than a rewrite of
+/// [`restore_actor`]: the restore is a transcription of `h.a(byte[], int)`
+/// and its panics are the fidelity tripwire on the canonical path (a
+/// self-produced blob that fails any check below is a port bug, not bad
+/// input). The port audit's ruling: validate-then-trust at the two untrusted
+/// entry points, canonical panics untouched.
+///
+/// `formats::parse_save` + the `read_save_file` round-trip gate the record's
+/// *structure*; these are its *semantics*. The checks mirror, in order, the
+/// four things the restore path indexes on:
+///
+/// 1. `model_name` -> `ModelCache::get` (a filesystem read + `.cml` parse,
+///    and a `Path::join` that an absolute or `..` name would escape)
+/// 2. `var_byte_f` -> `class_init`'s subtype-5 class row (`expect`)
+/// 3. `var_byte_j` -> `class_progression`'s subtype-4 row (`expect`) — the
+///    raw saved value is read by the `h.f` call at the end of `class_init`,
+///    BEFORE any equip can overwrite it
+/// 4. each item tag -> its kind's subtype row (`panic` / `expect`)
+///
+/// On `Ok` the model is cached, so the following restore cannot fail on it.
+pub fn validate_restorable(
+    a: &SaveActor,
+    models: &mut crate::world::ModelCache,
+    tables: &formats::Tables,
+) -> anyhow::Result<()> {
+    let model = std::str::from_utf8(&a.model_name)
+        .map_err(|_| anyhow::anyhow!("save model name is not valid UTF-8"))?;
+    models.try_load(model)?;
+
+    if tables.row(5, i32::from(a.var_byte_f)).is_none() {
+        anyhow::bail!("save class {} has no subtype-5 row", a.var_byte_f);
+    }
+    if tables.row(4, i32::from(a.var_byte_j)).is_none() {
+        anyhow::bail!("save weapon {} has no subtype-4 row", a.var_byte_j);
+    }
+    for &(b0, id) in &a.items {
+        let kind = i32::from(b0 & 0x7F);
+        let subtype = item_subtype(kind)
+            .ok_or_else(|| anyhow::anyhow!("save item kind {kind} out of range"))?;
+        if tables.row(subtype, i32::from(id)).is_none() {
+            anyhow::bail!("save item kind {kind} id {id} has no subtype-{subtype} row");
+        }
+    }
+    Ok(())
+}
+
 /// `h.a(byte[], int)` (h.java:40) — rebuild a live player from a save-actor:
 /// a default actor with the stored scalar fields, the class hang
 /// (`class_init(from_save=true)` — no equip/attr overwrite), the inventory
@@ -109,12 +173,8 @@ pub fn restore_actor(
     for &(b0, id) in &a.items {
         let active = (b0 & 0x80) != 0;
         let kind = i32::from(b0 & 0x7F);
-        let subtype = match kind {
-            0 => 4u8,
-            1 => 1,
-            2 => 2,
-            k => panic!("save item kind {k} out of range"),
-        };
+        let subtype =
+            item_subtype(kind).unwrap_or_else(|| panic!("save item kind {kind} out of range"));
         let row = tables
             .row(subtype, i32::from(id))
             .expect("save item row")
@@ -130,6 +190,10 @@ pub fn restore_actor(
 /// unreadable, or unparseable (corrupt/truncated — the file is
 /// user-editable) all yield `None` = the wiped-RMS baseline. Persistence is
 /// frontend-owned: the parity suites never touch these helpers.
+///
+/// This gates the record's STRUCTURE only. A structurally valid record can
+/// still be semantically hostile — [`validate_restorable`], run by
+/// `Shell::install_save`, is the second half of the boundary.
 pub fn read_save_file(path: &std::path::Path) -> Option<Vec<u8>> {
     let bytes = std::fs::read(path).ok()?;
     // parse_save is lenient (trailing junk, odd player bytes) — require the
