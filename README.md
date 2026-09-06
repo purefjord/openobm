@@ -3,9 +3,11 @@
 A compatibility-first Rust rewrite of *The Elder Scrolls Travels: Oblivion*
 (Superscape, Java ME / MIDP-1.0). Correctness is anchored to the **original
 binary's computation**, captured into byte-comparable fixtures and frozen into
-automated tests — never to hand judgement. See `../GOAL.md` and `../spec.txt`.
+automated tests — never to hand judgement. (`../GOAL.md` and `../spec.txt` are
+the *original* brief, milestones M0–M3 only, and are stale.)
 
-This repository delivers milestones **M0 → M3** of that plan.
+This repository delivers milestones **M0 → M13** — the whole game, per-beat
+byte-validated end to end. Current state, and what is left, live in `HANDOFF.md`.
 
 ## Workspace layout
 
