@@ -120,35 +120,6 @@ impl Model {
     }
 }
 
-/// Resolve a resource name to a path that cannot escape the asset root.
-///
-/// Resource names are MIDP-style absolute (`/oh_pc.cml`) and the loader
-/// strips the leading `/` before joining — but `Path::join` with an
-/// otherwise-absolute path (`C:\...`, a UNC prefix) REPLACES the base
-/// entirely, and a `..` component walks out of it. Every shipped name is a
-/// plain filename, so requiring all-`Normal` components changes nothing on
-/// the canonical path; it exists for names that arrive from the
-/// user-editable save record.
-fn safe_relative(name: &str) -> anyhow::Result<PathBuf> {
-    let rel = name.trim_start_matches('/');
-    if rel.is_empty() {
-        anyhow::bail!("empty resource name");
-    }
-    // Backslash is a separator on Windows but an ordinary character
-    // elsewhere — reject it outright so the check can't depend on the host.
-    if rel.contains('\\') {
-        anyhow::bail!("resource name {name:?} contains a backslash");
-    }
-    let path = std::path::Path::new(rel);
-    if !path
-        .components()
-        .all(|c| matches!(c, std::path::Component::Normal(_)))
-    {
-        anyhow::bail!("resource name {name:?} is not a plain relative path");
-    }
-    Ok(path.to_path_buf())
-}
-
 /// The shared per-model animation cache (`g`'s `d`-instance cache).
 #[derive(Default)]
 pub struct ModelCache {
@@ -186,7 +157,7 @@ impl ModelCache {
         if self.models.contains_key(name) {
             return Ok(());
         }
-        let path = self.assets_dir.join(safe_relative(name)?);
+        let path = crate::asset::resource_path(&self.assets_dir, name)?;
         let bytes = std::fs::read(&path)
             .map_err(|e| anyhow::anyhow!("model resource {}: {e}", path.display()))?;
         let cml = parse_cml(&bytes).map_err(|e| anyhow::anyhow!("model cml parse: {e}"))?;

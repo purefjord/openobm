@@ -29,4 +29,5 @@ Get-ChildItem -LiteralPath $staging -File -Recurse |
 Remove-Item -LiteralPath $staging -Recurse -Force
 
 Write-Host "Extracted $kept resource files to $Dest/"
-Write-Host "Next: regenerate the oracle fixtures (see README, 'Supplying the game data')."
+Write-Host "Parser checks: cargo test -p eso-tools --features assets --locked"
+Write-Host "Playing also requires unpublished text masks; see the README setup limitation."

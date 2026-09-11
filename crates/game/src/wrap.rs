@@ -122,8 +122,8 @@ pub fn build_pages(masks: &TextMasks, text: &str, version: &str) -> Vec<Vec<Stri
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(all(test, feature = "fixtures"))]
+mod fixture_tests {
     use super::*;
     use std::path::PathBuf;
 
@@ -151,6 +151,38 @@ mod tests {
                 "trademarks of ZeniMax Media Inc. All rights",
                 "reserved.",
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn synthetic_metrics() -> TextMasks {
+        let widths = (32..=126)
+            .map(|code| format!("{code}=1"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        TextMasks::parse(&format!(
+            "font 0-1-8 midp_height=10 ascent=8\ncharw 0-1-8 {widths}\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn wraps_words_using_supplied_metrics() {
+        assert_eq!(
+            break_lines(&synthetic_metrics(), "red blue green", 8),
+            vec!["red", "blue", "green"]
+        );
+    }
+
+    #[test]
+    fn substitutes_version_and_splits_escaped_paragraphs() {
+        assert_eq!(
+            build_pages(&synthetic_metrics(), "Build VERSION\\nSecond page", "2.0"),
+            vec![vec!["Build 2.0"], vec!["Second page"]]
         );
     }
 }

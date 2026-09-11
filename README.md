@@ -1,177 +1,133 @@
 # OpenOBM
 
-**An open reimplementation of *The Elder Scrolls Travels: Oblivion* (2006, Java ME)
-— in Rust, validated byte-for-byte against the original bytecode.**
+An experimental Rust reimplementation of the engine for *The Elder Scrolls
+Travels: Oblivion* (2006, Java ME).
 
-*Oblivion Mobile* was an isometric action-RPG released for J2ME feature phones in
-2006 by Vir2L Studios. OpenOBM is a compatibility-first rewrite of its engine:
-the whole game, from the prison cell to the end credits.
-
-No prior reimplementation of this title is known. The closest comparable work in
-the *Travels* series is [Shadowkey-RE][sk] — a different game, and data
-extraction rather than a playable port.
+> **Development preview:** the public source builds, but playing currently also
+> requires an unpublished text-mask file. Extracting your own game archive is
+> not sufficient to run `play`, `levelmap`, or `mapforge`. A reproducible public
+> font setup is still needed.
 
 <p align="center">
-  <img src="screenshots/gameplay.png" alt="The Imperial City Prison, running in OpenOBM at the original 240x320" width="240">
+  <img src="screenshots/gameplay.png" alt="The Imperial City Prison running in OpenOBM at 240x320" width="240">
   <br>
-  <em>The Imperial City Prison — OpenOBM, at 240&times;320.</em>
+  <em>The Imperial City Prison, captured from the development setup.</em>
 </p>
-
-<p align="center">
-  <img src="screenshots/kvatch-full-level.png" alt="Kvatch Oblivion Gate rendered in one image by the levelmap tool" width="640">
-  <br>
-  <em>The <strong>entire</strong> level in one image.<code>levelmap</code> loads the
-  level through its real scripts and draws the whole thing.</em>
-</p>
-
-> **OpenOBM ships no game data.** Running it requires your own legally obtained
-> copy of the original. See [Supplying the game data](#supplying-the-game-data).
-
-[sk]: https://github.com/minexew/Shadowkey-RE
 
 ## Status
 
-The whole game is ported and loads end to end, and every shipped format parses
-byte-exact. **It has not yet been played start to finish by a human**, so it is
-not 1.0: softlocks, dead ends, and wrongness in places no fixture looks are the
-open risk. Treat it as feature-complete and unproven in play.
+The engine implements the game's parsers, rendering, menus, gameplay loop, and
+save/load support. Development tests compared selected outputs with reference
+captures from the original game. **A complete human playthrough is still
+pending.** Untested paths may contain bugs or softlocks.
 
-## What is proved
+The original game archive, extracted resource pack, and captured reference
+fixtures are not distributed. The demonstration screenshots depict original
+game content; see [NOTICE.md](NOTICE.md).
 
-Correctness was anchored to the **original binary's computation**, not to
-judgement about whether output looks right. Each surface below was established
-by diffing against the original — the data formats against a second, independent
-transcription of the original loader algorithms, and the interactive loop against
-the real `.jar` running headless on FreeJ2ME, compared frame by frame:
+## Build and test
 
-| Surface | Scope | Result |
-|---|---|---|
-| Data formats | `.jtm` maps, `lang` tables, `.cml` models, `.scr` scripts (loader, all 79 opcodes, stat tables), `ESO` saves | byte-identical |
-| Game logic | 15 sweeps against real bytecode — progression, melee, XP, targeting, collision, movement, animation, effects, per-actor tick, AI, spellcasting | byte-identical |
-| The shell | 70 pixel-parity frames — boot, menus, gameplay, shop, save/load, death, credits | byte-identical |
-| Every level | l01 through l12 plus the ending, per-beat validated; ten sequential loads in one session | byte-identical |
-
-The harness that produced those fixtures — a JVM transcription of the original
-loaders, plus an instrumented FreeJ2ME — is **not part of this repository**. What
-ships here is the engine. The table records what the port was measured against
-during development; it is not reproducible from this repository alone.
-
-## Workspace layout
-
-```
-crates/
-  formats/     pure, graphics-free parsers (fuzzable in isolation)
-    reader.rs    one big-endian / unsigned-byte reader all parsers use
-    iso.rs       world<->screen isometric transforms (verified shifts)
-    lang.rs      lang_*.txt string tables
-    jtm.rs       .jtm RLE tile maps
-    cml.rs       .cml model/animation/sprite tables
-    scr.rs       .scr script loader (entry table + data sections + bytecode)
-    vm.rs        .scr bytecode VM (79-opcode decoder + control flow)
-  eso-tools/   `eso-dump` — byte-comparable canonical dumps + scr-coverage
-  render/      isometric map/sprite renderer behind a `Renderer` trait
-  game/        the ported shell — modes, menus, gameplay loop, save/load
-tools/         extract-assets.{ps1,sh} — unpack your jar into assets/
-tests/drives/  input scripts that drive the shell through scripted play
-docs/          controls
-
-# NOT in this repo — you create these locally (see below):
-assets/          your extracted game data
-tests/fixtures/  the byte-comparison fixtures
-```
-
-## Supplying the game data
-
-OpenOBM contains no assets, no string tables, no sprites and no disassembly.
-`.gitignore` blocks all of them, and nothing of the sort exists anywhere in this
-repository's history.
-
-1. **The original MIDlet** (`Oblivion.jar`), from your own copy of the game.
-2. **Its resources unpacked into `assets/`.** A `.jar` is a zip and the game's
-   resources sit at its root, so this is just an unzip with the Java classes
-   dropped. There is a script for it:
-
-   ```sh
-   pwsh tools/extract-assets.ps1 path/to/Oblivion.jar   # Windows
-   sh   tools/extract-assets.sh  path/to/Oblivion.jar   # Linux/macOS (needs unzip)
-   ```
-
-   Both write to `assets/` and expect ~112 resource files.
-
-That is everything needed to **play**, and to run the golden decode tests
-(`cargo test -p eso-tools --features assets`).
-
-## Build & run
+Install Rust and Cargo, then run these commands from the repository root:
 
 ```sh
-cargo run -p game --features interactive --bin play --release   # play it
-cargo test --workspace                                          # 80 tests, no data needed
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --features game/interactive,render/interactive --locked
 ```
 
-The suites that need game data are opt-in, so a fresh clone tests green:
+These checks do not require game data or a display. CI uses Rust 1.97.0.
+Tests requiring private reference captures are enabled separately with
+`game/fixtures` and `eso-tools/fixtures`.
+
+## Supplying local game data
+
+Use your own legally obtained copy of the original `Oblivion.jar`. The extraction
+scripts unpack its resources into `assets/`, excluding Java classes:
 
 ```sh
-cargo test -p eso-tools --features assets      # + the golden decode tests
-cargo test --workspace --features game/fixtures,eso-tools/fixtures   # everything
+pwsh tools/extract-assets.ps1 path/to/Oblivion.jar   # Windows
+sh tools/extract-assets.sh path/to/Oblivion.jar     # Linux/macOS; requires unzip
 ```
 
-`assets` means you have extracted your own copy into `assets/`. `fixtures` means
-you also have `tests/fixtures/`, the captured ground truth — which is derived
-from the original game and is not distributed, so those suites are for
-development rather than something a clone can reproduce.
-
-Tools:
+With those resources, the parser checks and map renderer can run:
 
 ```sh
-cargo run -p eso-tools -- jtm|lang|cml|scr|scr-trace|scr-exec|scr-coverage ./assets
-cargo run -p eso-tools -- save-roundtrip path/to/eso_blob.bin
+cargo test -p eso-tools --features assets --locked
 cargo run -p render --bin map-shot -- ./assets l01_1.jtm out.png
 cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 ```
 
-Controls are in [`docs/controls.md`](docs/controls.md).
+Keep extracted resources, saves, and generated images local. `.gitignore`
+excludes the usual data directories, but does not prevent files being copied
+elsewhere or forcibly added.
 
-## Beyond the port
+### Playing from an existing development setup
 
-Two things here are **not** part of the faithful port. They sit on top of the
-engine, are gated by nothing, and have no tests — demos, not guarantees:
+The playable frontend additionally reads
+`tests/fixtures/oracle/text_masks.txt`. It contains captured font metrics and
+rendered text masks; neither that file nor its original capture tool is included
+here. The extraction scripts do not generate it.
 
-- **`mapforge`** — a custom-map generator. It writes a `.jtm` map and a `.scr`
-  script from scratch and boots them in the engine. Everything else here proves
-  the original's formats can be *read* byte-exactly; mapforge is the proof they
-  can be *written* too, which is what makes a level editor plausible. It touches
-  no shipped file — custom content only.
+If you already have a compatible local development setup:
 
-  ```sh
-  cargo run -p game --bin mapforge --release -- world    # a walking-sim level
-  cargo run -p game --bin mapforge --release -- palette  # a tile contact sheet
-  ```
+```sh
+cargo run -p game --features interactive --bin play --release
+cargo test --workspace --features game/fixtures,eso-tools/fixtures --locked
+```
 
-- **widescreen** (`play wide` / `wide10`) — a viewport wider than the original's
-  240x320. Good for looking around; deliberately outside the parity gates,
-  because the original's framing is part of what gets validated.
+See [controls](docs/controls.md). Saves are stored locally in `playdata/eso.bin`.
 
-## Audio: none — the original is silent
+## Validation during development
 
-Verified against the real bytecode: no class in the jar references
-`javax.microedition.media` or any vendor audio API, the jar ships zero audio
-assets, and the menu build never surfaces the vestigial "Sound:" toggle (its
-fire branch is dead code, ported faithfully and pinned by a test). A 1:1 port of
-a silent game is silent — audio is out of scope by *fidelity*, not omission.
+The following summarizes recorded comparisons from development. These results
+apply to the cases exercised; they do not establish correctness for every game
+state and have not been independently reproduced from this public checkout.
 
-## Legal
+| Area | Recorded coverage |
+|---|---|
+| Data formats | Maps, language tables, models, scripts, the 79-opcode decoder, stat tables, and saves |
+| Game logic | 15 comparison sweeps covering progression, combat, movement, animation, effects, AI, and spellcasting |
+| Shell | 70 pixel comparisons covering boot, menus, gameplay, shops, saves, death, and credits |
+| Levels | Scripted cases across l01–l12 and the ending, including sequential loading |
 
-Unofficial and non-commercial. Not affiliated with, endorsed by, or approved by
-ZeniMax Media, Bethesda Softworks, or Vir2L Studios. Dual-licensed
-**MIT OR Apache-2.0**. Trademarks and the no-game-data guarantee: **`NOTICE.md`**.
+The reference harness used a JVM transcription of loader algorithms and an
+instrumented FreeJ2ME. That harness and its game-derived captures are not part of
+this repository. The default public tests exercise synthetic, data-free cases.
 
-## How this was built
+## Project layout
 
-OpenOBM was written with [Claude Code](https://claude.com/claude-code) — Fable 5,
-Opus 5, and Opus 4.8 — over 11 weeks, June to September 2026.
+| Directory | Purpose |
+|---|---|
+| `crates/formats` | Data parsers, VM formats, and shared game logic |
+| `crates/eso-tools` | Format inspection and diagnostic commands |
+| `crates/render` | Map and sprite rendering |
+| `crates/game` | Menus, gameplay shell, save/load, and interactive frontend |
+| `tests/drives` | Input sequences used for development comparisons |
+| `tools` | Resource extraction and publication checks |
 
-Every correctness claim above was established mechanically, by diffing against
-the original binary — never by hand judgement. That is the whole method: the
-model does not get to decide whether the port is right, the original does.
+## Experimental tools
+
+`mapforge` generates custom maps, and `play wide` / `play wide10` provide wider
+viewports. These experiments are outside the original viewport comparisons and
+share the unpublished font dependency described above.
+
+<details>
+<summary>Level rendering example: Kvatch Oblivion Gate</summary>
+
+<img src="screenshots/kvatch-full-level.png" alt="Kvatch Oblivion Gate rendered by the levelmap tool" width="640">
+
+Captured with `levelmap` in the development setup. The image depicts original
+game content.
+
+</details>
+
+## Contributing and licensing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local checks and publication safeguards.
+OpenOBM was developed with assistance from Claude Code.
+
+The engine source is dual-licensed **MIT OR Apache-2.0**. This is an unofficial
+fan project, unaffiliated with ZeniMax Media, Bethesda Softworks, or Vir2L Studios.
+Original game materials are not covered by the engine's license; see
+[NOTICE.md](NOTICE.md).

@@ -115,14 +115,20 @@ mod tests {
     }
 
     #[test]
-    fn decodes_real_indexed_png_to_rgba() {
-        // c1.png is a 128x157 8-bit palette sprite sheet with transparency.
-        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/c1.png"))
-            .expect("read c1.png");
-        let png = load_png(&bytes).expect("decode c1.png");
-        assert_eq!((png.w, png.h), (128, 157));
-        assert_eq!(png.rgba.len(), 128 * 157 * 4);
-        // A palette PNG with tRNS must yield at least some fully transparent pixels.
-        assert!(png.rgba.chunks_exact(4).any(|p| p[3] == 0));
+    fn decodes_indexed_png_with_transparency_to_rgba() {
+        // Synthetic pixels exercise palette expansion and tRNS without a game asset.
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
+            encoder.set_color(png::ColorType::Indexed);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_palette(vec![255, 0, 0, 0, 255, 0]);
+            encoder.set_trns(vec![255, 0]);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[0, 1]).unwrap();
+        }
+        let png = load_png(&bytes).expect("decode synthetic palette PNG");
+        assert_eq!((png.w, png.h), (2, 1));
+        assert_eq!(png.rgba, vec![255, 0, 0, 255, 0, 255, 0, 0]);
     }
 }

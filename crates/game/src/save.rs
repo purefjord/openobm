@@ -7,6 +7,17 @@
 use formats::save::{Save, SaveActor, SavePlayer};
 use formats::Actor;
 
+/// Check the saved level-script target before any save state is installed.
+pub(crate) fn validate_script_name(name: &[u8], root: &std::path::Path) -> anyhow::Result<()> {
+    let name = std::str::from_utf8(name)
+        .map_err(|_| anyhow::anyhow!("save script name is not valid UTF-8"))?;
+    anyhow::ensure!(name.ends_with(".scr"), "save target is not a script");
+    let path = crate::asset::resource_path(root, name)?;
+    let bytes = std::fs::read(path)?;
+    formats::parse_scr(&bytes).map_err(|e| anyhow::anyhow!("save script parse: {e}"))?;
+    Ok(())
+}
+
 /// `h.a(j, ByteArrayOutputStream)` (h.java:1812) — build the actor blob's
 /// fields from a live player, recomputing each inventory tag's `active` bit
 /// (weapons: `var_byte_j == id`; armor: equipped in a slot; consumables:
@@ -215,4 +226,31 @@ pub fn write_save_file(path: &std::path::Path, blob: &[u8]) -> std::io::Result<(
     let tmp = path.with_extension("bin.tmp");
     std::fs::write(&tmp, blob)?;
     std::fs::rename(&tmp, path)
+}
+
+#[cfg(test)]
+mod script_target_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_saved_script_traversal_and_invalid_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("assets");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(temp.path().join("outside.scr"), b"outside").unwrap();
+        std::fs::write(root.join("invalid.scr"), b"invalid").unwrap();
+        // The format parser's synthetic minimal script is a valid local target.
+        std::fs::write(root.join("valid.scr"), [0u8, 0, 1, 2, 99, 98]).unwrap();
+        assert!(validate_script_name(b"/valid.scr", &root).is_ok());
+        for name in [
+            b"/../outside.scr".as_slice(),
+            b"/C:/outside.scr",
+            b"/invalid.scr",
+            b"/missing.scr",
+            b"/sprite.png",
+            b"/\xff.scr",
+        ] {
+            assert!(validate_script_name(name, &root).is_err());
+        }
+    }
 }

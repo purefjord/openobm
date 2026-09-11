@@ -60,3 +60,26 @@ Cargo.lock.bak
 
 # the play frontend's persisted ESO record (the user's own save — never commit)
 /playdata
+
+# Private development material and local credentials.
+.claude/
+.codex/
+.agents/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+*.7z
+*.zip
+/CLAUDE.md
+/AGENTS.md
+/GOAL.md
+/SESSION-NOTES.md
+/spec.txt
+/dialogue.txt
+/workspace/
+/outputs/

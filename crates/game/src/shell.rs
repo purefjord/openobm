@@ -311,6 +311,9 @@ impl Shell {
     /// latency-driven on the real device and instant here; `r:B` stays -1
     /// (empty bar), visual-only.
     fn loader(&mut self, name: &str) -> anyhow::Result<()> {
+        let path = crate::asset::resource_path(&self.assets_dir, name)?;
+        let bytes = std::fs::read(&path)
+            .map_err(|e| anyhow::anyhow!("loading script {}: {e}", path.display()))?;
         self.set_mode(6);
         self.level_script = name.to_string(); // var_java_lang_String_c
         self.page = -1;
@@ -325,9 +328,6 @@ impl Shell {
         // b.a(String) 330-348: dialogue closed, per-level actor reset.
         self.world.dialogue = None;
         self.world.reset_actors_for_load();
-        let path = self.assets_dir.join(name.trim_start_matches('/'));
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("loading script {}: {e}", path.display()))?;
         self.vm.load(&bytes)
     }
 
@@ -2364,12 +2364,14 @@ impl Shell {
     /// is a user-editable file, so a structurally valid record can still be
     /// semantically hostile (a model name pointing out of the asset root, an
     /// out-of-range class or item id). Everything the restore assumes is
-    /// checked by [`crate::save::validate_restorable`] BEFORE any shell state
+    /// checked by the saved-script and [`crate::save::validate_restorable`]
+    /// validators BEFORE any shell state
     /// is written, so a rejected blob leaves the shell exactly as it was —
     /// both a corrupt blob and a hostile one are `Err`, never a panic.
     pub fn install_save(&mut self, blob: Vec<u8>) -> anyhow::Result<()> {
         let save = formats::parse_save(&blob).map_err(|e| anyhow::anyhow!("save parse: {e}"))?;
         if let Some(sp) = &save.player {
+            crate::save::validate_script_name(&sp.name, &self.assets_dir)?;
             crate::save::validate_restorable(&sp.actor, &mut self.models, &self.vm.tables)?;
         }
         self.bindings = [

@@ -3,3 +3,4 @@
 * text=auto eol=lf
 *.png binary
 *.jar binary
+/.githooks/* text eol=lf

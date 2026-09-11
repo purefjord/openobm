@@ -604,20 +604,14 @@ fn build_world() -> MapGrids {
                         m.top[i] = TREE;
                     }
                 }
-                2 => {
-                    if hash2(x, y, 21) % 100 < 60 {
-                        m.set_solid(x, y, TREE);
-                    }
+                2 if hash2(x, y, 21) % 100 < 60 => {
+                    m.set_solid(x, y, TREE);
                 }
-                3 => {
-                    if hash2(x, y, 21) % 100 < 40 {
-                        m.set_solid(x, y, TREE);
-                    }
+                3 if hash2(x, y, 21) % 100 < 40 => {
+                    m.set_solid(x, y, TREE);
                 }
-                4 => {
-                    if hash2(x, y, 21) % 100 < 18 {
-                        m.set_solid(x, y, TREE);
-                    }
+                4 if hash2(x, y, 21) % 100 < 18 => {
+                    m.set_solid(x, y, TREE);
                 }
                 _ => {}
             }

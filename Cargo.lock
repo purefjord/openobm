@@ -193,6 +193,7 @@ dependencies = [
  "macroquad",
  "png",
  "render",
+ "tempfile",
 ]
 
 [[package]]
