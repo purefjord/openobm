@@ -355,3 +355,19 @@ cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 > `x*height+y` is fumbled" — is already provided by `overflow-checks = true`
 > (dev/test) plus the proptest fuzzers, which exercise every parser and the VM on
 > thousands of random inputs without panicking.
+
+## How this was built
+
+OpenOBM was written with [Claude Code](https://claude.com/claude-code) — Fable 5,
+Opus 5, and Opus 4.8 — over 11 weeks and 106 commits, June to September 2026.
+
+```
+26,050 lines of Rust      the engine
+ 6,816 lines of Java      the oracle harness
+    32 test files         45 suites, byte-gated against the original
+    26 validation loops   each one a level or subsystem proved byte-exact
+```
+
+Every correctness claim in this README was established mechanically, by diffing
+against the original binary — never by hand judgement. That is the whole method:
+the model does not get to decide whether the port is right, the original does.
