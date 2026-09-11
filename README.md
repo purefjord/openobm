@@ -11,6 +11,12 @@ No prior reimplementation of this title is known. The closest comparable work in
 the *Travels* series is [Shadowkey-RE][sk] — a different game, and data
 extraction rather than a playable port.
 
+<p align="center">
+  <img src="screenshots/gameplay.png" alt="The Imperial City Prison, running in OpenOBM at the original 240x320" width="240">
+  <br>
+  <em>The Imperial City Prison — OpenOBM, at the original 240&times;320.</em>
+</p>
+
 > **OpenOBM ships no game data.** Running it requires your own legally obtained
 > copy of the original. See [Supplying the game data](#supplying-the-game-data).
 
