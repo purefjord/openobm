@@ -326,6 +326,30 @@ Checked against the decompiled source / bytecode (the spec said to trust but ver
   (`artifacts/pc_sheet.png`, `artifacts/pc_map.png`). Pixel-parity against the
   real game's in-game frames is gated on the oracle's input-injection enabler.
 
+## Beyond the port
+
+Two things here are **not** part of the faithful port. They are built on top of
+the validated engine, they are gated by nothing, and they have no tests. Demos,
+not guarantees:
+
+- **`mapforge`** — a custom-map generator. It writes a `.jtm` map and a `.scr`
+  script from scratch and boots them in the engine. Everything else in this
+  repository proves the original's formats can be *read* byte-exactly; mapforge
+  is the proof they can be *written* too, which is what makes a level editor
+  plausible (`docs/editor-feasibility.html`). It touches no shipped file and no
+  fixture — custom content only.
+
+  ```sh
+  cargo run -p game --bin mapforge --release -- world    # a walking-sim level
+  cargo run -p game --bin mapforge --release -- palette  # a tile contact sheet
+  ```
+
+- **widescreen** (`play wide` / `wide10`) — a viewport wider than the original's
+  240x320. Good for looking around; deliberately outside the parity gates,
+  because the original's framing is part of what gets validated.
+
+The port itself stays pure: neither is compiled into the validation path.
+
 ## Build & test
 
 ```sh
