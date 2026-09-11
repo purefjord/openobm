@@ -1,0 +1,18 @@
+# Capture the save/load confirm screens from a SAVE-PRESENT boot (ESO record
+# from to_save.txt persists in RMS). Boot -> title (key) -> main menu, now
+# [New Game, Load Game, Help, About, Exit]. New Game -> m16 overwrite; Load
+# Game -> m14 load confirm. Both paints read NO world state.
+wait 20000
+tap fire
+wait 7000
+shot menu_with_save.png
+tap fire
+wait 800
+shot overwrite_confirm.png
+tap 21
+wait 800
+tap right
+wait 600
+tap fire
+wait 800
+shot load_confirm.png

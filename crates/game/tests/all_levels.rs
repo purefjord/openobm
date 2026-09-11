@@ -33,7 +33,8 @@ fn fixture(name: &str) -> String {
 
 #[test]
 fn all_levels_load_matches_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_alllevels.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_alllevels.txt")).expect("drive");
     let mut s = boot_shell();
     let arts = game::script::drive(&mut s, &script).expect("drive");
     let levels = [

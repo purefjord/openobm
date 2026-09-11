@@ -1,0 +1,207 @@
+# END-TO-END PLAYTHROUGH (loop #30): from a real L01 boot, follow the REAL
+# op29 chain through every level to the credits — NO callscript jump-ins. Each
+# level's exit op29 lives in a specific entry (the exit trigger); `callentry`
+# is the real `e.a(int)` push that trigger uses. Per step: push the exit entry,
+# resume the VM (callmode 0 for a checkpoint, tap fire to dismiss a dialogue
+# hold so the pushed entry runs), wait for the load + opening. modelog traces
+# the mode sequence: each transition shows 6->15 (the loader) as proof the
+# chain fired and the next level loaded.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+modelog pt_modes.txt
+# l01_1 -> l02_2_1
+pause
+callentry 30
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l02_2_1 -> l02_2
+pause
+callentry 4
+unpause
+callmode 0
+wait 400
+tap fire
+wait 400
+tap fire
+wait 8000
+# l02_2 -> l03_3
+pause
+callentry 26
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l03_3 -> l04_4
+pause
+callentry 11
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l04_4 -> l05_5
+pause
+callentry 22
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l05_5 -> l06_6_cr
+pause
+callentry 14
+unpause
+callmode 0
+wait 400
+tap fire
+wait 400
+tap fire
+wait 8000
+# l06_6_cr -> l06_6
+pause
+callentry 10
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l06_6 -> l06_a
+pause
+callentry 25
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l06_a -> l06_6a
+pause
+callentry 8
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l06_6a -> l06_6_ba
+pause
+callentry 14
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l06_6_ba -> l06_b
+pause
+callentry 8
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l06_b -> l07_7_cr
+pause
+callentry 6
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l07_7_cr -> l07_7
+pause
+callentry 5
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l07_7 -> l08_8_cr
+pause
+callentry 10
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l08_8_cr -> l08_8
+pause
+callentry 5
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l08_8 -> l09_9_cr
+pause
+callentry 15
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l09_9_cr -> l09_9
+pause
+callentry 5
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l09_9 -> l10_10_cr
+pause
+callentry 10
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l10_10_cr -> l10_10
+pause
+callentry 5
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l10_10 -> l11_11_cr
+pause
+callentry 11
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l11_11_cr -> l11_11
+pause
+callentry 5
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l11_11 -> l12_12
+pause
+callentry 8
+unpause
+callmode 0
+wait 400
+tap fire
+wait 8000
+# l12_12 -> end_15 (-> credits)
+pause
+callentry 8
+unpause
+callmode 0
+wait 400
+tap fire
+wait 10000
+modelogstop
+shotnorm pt_credits.png

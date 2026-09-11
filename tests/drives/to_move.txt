@@ -1,0 +1,14 @@
+# Drive to in-level gameplay, open the pause menu (game loop suspended), then
+# validate the movement step h.void_a via position-trace parity. dumpMove swaps a
+# synthetic collision map into b.var_byte_arr_a/dims, runs a scripted move sequence
+# on a synthetic actor, and restores the live map afterwards.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumpmove move_real.txt

@@ -1,0 +1,22 @@
+# Frame-pacer validation (the loop-31 cadence case): with the run loop's
+# frame dt PINNED to 50 game-ms, the l05 throne-procession walkers frozen
+# by the op45 checkpoint must land at the PORT's fixed-50ms positions —
+# slot 14 x=2084, slot 16 x=2081 — instead of the free-running headless
+# values (2069/2062 at ~100 game-ms frames). Boot stays real-time
+# choreography; pacing enables just before the level load.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+framepace 50 2
+callscript /l05_5.scr
+unpause
+wait 15000
+dumpworldg l05p_world_a.txt
+wait 5000
+dumpworldg l05p_world_b.txt

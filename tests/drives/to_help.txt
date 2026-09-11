@@ -1,0 +1,76 @@
+# Help/About fixtures for M11 loop #10: RIGHT from New Game -> Help; fire
+# opens menu PAGE 6 (still mode 3 -- the help-topic carousel, input 2028:
+# x:B=k, k:B=6). Carousel right x2 -> Game Overview; fire -> mode 23 (static
+# text page: header box + lang574 body; NOT in the auto-scroll timer set ->
+# gate-able). HOLD UP scrolls the text down but the per-paint clamp settles
+# g:S at 20 (deterministic); DOWN is dead (p:Z end-latch set on entry since
+# the short text's end is visible -- the original never clears it in-mode).
+# BACK (21) -> page 6 -> BACK -> main menu (cursor held on Help). Then About:
+# fire -> mode 4 credits roll (ANIMATED: auto-scroll -- shot is visual-only,
+# never gated), BACK out early (before the ~22s roll + 3s end-freeze), cursor
+# held on About. Then LEFT+fire re-enters page 6 (cursor STILL on Game
+# Overview -- e:[B[6] persists), LEFT LEFT -> Basic Controls; fire -> mode 17
+# (static, gate-able). -Doracle.textlog captures every drawString: the REAL
+# wrapped lines of lang574/lang465 = the wrap ground truth + mask corpus.
+# Run with a WIPED rms/. Timings as to_boot.txt (title settles 16s+).
+modelog helpmodes.txt
+wait 21000
+tap fire
+wait 4000
+tap right
+wait 700
+shot h0_menu_help.png
+tap fire
+wait 1000
+shot h1_page6_basic.png
+tap right
+wait 700
+shot h2_page6_custom.png
+tap right
+wait 700
+shot h3_page6_gameoverview.png
+tap fire
+wait 1500
+shot h4_overview.png
+press up
+wait 4000
+release up
+wait 700
+shot h5_overview_scrolled.png
+tap down
+wait 700
+shot h6_overview_down_blocked.png
+tap 21
+wait 1000
+shot h7_page6_after_back.png
+tap 21
+wait 1000
+shot h8_menu_after_back.png
+tap right
+wait 700
+shot h9_menu_about.png
+tap fire
+wait 2000
+shot h10_about_visual.png
+tap 21
+wait 1000
+shot h11_menu_after_about.png
+tap left
+wait 700
+tap fire
+wait 1000
+shot h12_page6_reentry.png
+tap left
+wait 700
+tap left
+wait 700
+shot h13_page6_basiccontrols.png
+tap fire
+wait 1500
+shot h14_controls.png
+tap 21
+wait 1000
+tap 21
+wait 1000
+shot h15_menu_final.png
+modelogstop

@@ -1774,6 +1774,10 @@ impl Shell {
     /// and BACK (`b:B`) exits {4,17,23} to mode 3 ({17,23}: page 6 +
     /// consume; {4}: main/pause page, NOT consumed). Returns `true` when
     /// the key was consumed (the caller must skip the VM tail).
+    // The inner `if` is NOT a match guard: a failed guard would fall through to
+    // the later arms, a failed `if` does not. The original's control flow is the
+    // spec here, so the shape stays as transcribed.
+    #[allow(clippy::collapsible_match)]
     fn text_page_input(&mut self, action: Option<Action>, key: i32, dt_ms: i32) -> bool {
         let small_h = self
             .masks

@@ -1,0 +1,13 @@
+# Drive to in-level gameplay (so b.var_e_a holds the race/item stat tables),
+# then dump the tables + sweep the real h.f over synthetic actors.
+# Same navigation as to_gameplay.txt.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+shot hf_gameplay.png
+dumptables tables_real.txt
+dumphf hf_real.txt

@@ -1,0 +1,22 @@
+# Drive title -> New Game -> class -> into the first level, advancing prompts.
+wait 19000
+tap fire
+wait 3500
+tap fire
+wait 3500
+tap fire
+wait 4000
+shot s1.png
+tap fire
+wait 3000
+shot s2.png
+tap fire
+wait 3000
+shot s3.png
+tap fire
+wait 3000
+shot s4.png
+tap fire
+wait 4000
+shot s5.png
+dumpjtm grid_runtime_s5.txt

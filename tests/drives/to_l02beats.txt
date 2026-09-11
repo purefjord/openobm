@@ -1,0 +1,138 @@
+# l02_2 (Kvatch, "The Illegitimate Son" playable level) PER-BEAT drive
+# (loop #32) — ONE script, both sides. The quest is a death-trigger CHAIN:
+# entry 29 (talk to the guard, 2 op3 dialogues) -> entry 30 spawns 10 (k=31)
+# + 11; killing the k-armed actor fires the next wave (31: spawns 12 k=32,
+# 13, 14 -> 32: spawns 15 k=33, 16, 17, 18 -> 33: region re-arm). Then
+# action-10 spawns MARTIN (slot 1, k=36 = the mission-fail entry) + door
+# walk; enter-13 is the rescue cutscene (walks Martin — firing it before 10
+# NPEs the real game); entry 34 is the Daedric Dagger reward (op37 -> the
+# player inventory; the Monk stays unarmed). Killing Martin fires entry 36:
+# a fail dialogue + a FULL level reload (entry 1 re-runs — the reload gate).
+# Exit = entry 26 (op29 /l03_3.scr).
+#
+# Kills are DETERMINISTIC: pause, setseed, sethp <tgt> 1, callhit 0 <tgt>
+# (one real h.a swing; the whole RNG stream is the swing's own draws — the
+# death branch's XP + sound draw + e.int_a() loot roll run inside the call).
+# Seed 1003's stream MISSES the first swing on 17 (died=false, faithful) —
+# the second swing kills. Every walker ARRIVES before each dump (no
+# frame-cadence residue — loop #31).
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l02_2.scr
+unpause
+wait 12000
+dumpworldg b0_world.txt
+# beat 1: talk to the guard (entry 29 -> 30)
+callentry 29
+wait 4000
+tap fire
+wait 2000
+tap fire
+wait 3000
+dumpworldg b1_world.txt
+# beat 2: kill the k=31 guard-post enemy -> wave 31 walks in
+pause
+setseed 1001
+sethp 10 1
+callhit 0 10
+unpause
+wait 10000
+dumpworldg b2_world.txt
+# beat 3: clear wave 31 (k=32 carrier last) -> wave 32 walks in
+pause
+setseed 1002
+sethp 13 1
+callhit 0 13
+sethp 14 1
+callhit 0 14
+sethp 12 1
+callhit 0 12
+unpause
+wait 10000
+dumpworldg b3_world.txt
+# beat 4: clear wave 32 (17 survives swing one, faithful; k=33 last) -> 33
+pause
+setseed 1003
+sethp 16 1
+callhit 0 16
+sethp 17 1
+callhit 0 17
+sethp 17 1
+callhit 0 17
+sethp 18 1
+callhit 0 18
+sethp 15 1
+callhit 0 15
+unpause
+wait 10000
+dumpworldg b4_world.txt
+dumpover b4_over.txt
+# beat 5: Martin (action-10: spawn slot 1 k=36 + door walk + re-arm)
+callentry 10
+wait 5000
+dumpworldg b5_world.txt
+# beat 6: the rescue cutscene (enter-13 -> 15): walks + 7 op53 holds. The
+# cutscene op36-teleports the player INTO the burning chapel: an ambient
+# op69 fire effect deals FRAME-paced, run-varying damage (ungateable live —
+# the recon saw hp 7 vs 30 across oracle runs; and at the port's 50ms frames
+# the fire hits ~2x as often as the oracle's ~100 game-ms headless frames,
+# enough to KILL the port's player where the oracle's survives — loop #31's
+# cadence class). Harden: sethp heals inside every fire window (dialogue
+# holds tick the effects pool!), then teleport out + pin hp before the dump
+# — every dumped field is deterministic again.
+callentry 13
+wait 5000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+sethp 0 122
+tap fire
+wait 2000
+tap fire
+wait 2000
+sethp 0 122
+tap fire
+wait 2000
+tap fire
+wait 1500
+sethp 0 122
+wait 1500
+sethp 0 122
+wait 1000
+teleport 0 2202 1848
+sethp 0 122
+wait 3000
+dumpworldg b6_world.txt
+# beat 7: the Daedric Dagger reward (entry 34: dialogue + op37 + op27s)
+callentry 34
+wait 3000
+tap fire
+wait 3000
+dumpworldg b7_world.txt
+dumpover b7_over.txt
+# beat 8: kill Martin -> entry 36: the fail dialogue + the FULL level reload
+pause
+setseed 1004
+sethp 1 1
+callhit 0 1
+unpause
+wait 4000
+tap fire
+wait 15000
+dumpworldg b8_world.txt
+dumpover b8_over.txt
+# beat 9: the exit chain (entry 26: op29 /l03_3.scr -> the checkpoint hold)
+callentry 26
+wait 18000
+dumpworldg b9_world.txt
+dumpjtm b9_layers.txt

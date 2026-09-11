@@ -1,0 +1,13 @@
+# Drive to in-level gameplay so b.var_e_a (the stat tables) is loaded — the
+# regen scenario's h.f reads it. The synthetic actors aren't in b.var_j_arr_a,
+# so the game loop never touches them; we pause (key 21) anyway for consistency.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumptick tick_real.txt

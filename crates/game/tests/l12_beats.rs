@@ -51,7 +51,8 @@ fn player_level(s: &Shell) -> i8 {
 
 #[test]
 fn l12_beats_and_the_game_end_match_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l12beats.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_l12beats.txt")).expect("drive");
     let segs = segments(&script);
     assert_eq!(segs.len(), 5, "4 assert markers -> 5 segments");
     let mut s = boot_shell();

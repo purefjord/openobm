@@ -1,0 +1,16 @@
+# Drive 2 of the fixed-scroll text-page anchors (see to_textpages.txt):
+# cold boot -> menu -> right, right -> About (m=4, credits roll from g=305)
+# -> pause + setscroll -50 -> normalized shot. -50 keeps the end condition
+# false (the roll is ~57 pitches long) while showing the credits head.
+wait 19000
+tap fire
+wait 4000
+tap right
+wait 500
+tap right
+wait 500
+tap fire
+wait 2000
+pause
+setscroll -50
+shotnorm t1_about_g-50.png

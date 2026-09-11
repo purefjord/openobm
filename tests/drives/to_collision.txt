@@ -1,0 +1,14 @@
+# Drive to in-level gameplay, open the pause menu (game loop suspended), then
+# validate h.boolean_a map collision. dumpCollision temporarily swaps a synthetic
+# collision layer + dims into b.var_byte_arr_a / b.f / b.g, so the game loop must be
+# idle (pause) to avoid a race; it restores the live map afterwards.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumpcollision collision_real.txt

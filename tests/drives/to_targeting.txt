@@ -1,0 +1,14 @@
+# Drive to in-level gameplay, open the pause menu (game loop suspended), then
+# validate h.j_a targeting. dumpTargeting temporarily swaps a synthetic array into
+# the global b.var_j_arr_a, so the game loop must be idle (pause) to avoid a race;
+# it restores the live array afterwards. h.j_a itself has no RNG.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumptargeting targeting_real.txt

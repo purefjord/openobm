@@ -1,0 +1,12 @@
+# Headless drive to in-level gameplay, using the navigation mapped during live
+# play: title "press any key" -> main menu -> New Game -> class -> the intro text
+# AUTO-SCROLLS (no key) -> cutscene -> walking in level 1.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+shot gameplay.png
+dumpjtm grid_gameplay.txt

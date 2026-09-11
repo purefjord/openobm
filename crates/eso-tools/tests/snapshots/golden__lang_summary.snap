@@ -1,0 +1,17 @@
+---
+source: crates/eso-tools/tests/golden.rs
+expression: summary
+---
+/lang_0.txt: entries=305 51d85d4260bdfe84
+/lang_1.txt: entries=34 75170537c70df283
+/lang_2.txt: entries=46 c63c299f29156df9
+/lang_3.txt: entries=9 a467d7a69787bc96
+/lang_4.txt: entries=16 238dd4fac77b2b3a
+/lang_5.txt: entries=6 8ef570847ae77a71
+/lang_6.txt: entries=42 a129e3d742a1c771
+/lang_7.txt: entries=20 b24c5db82f248647
+/lang_8.txt: entries=16 a4e62be2a682e6ab
+/lang_9.txt: entries=30 746bf8df2585e40c
+/lang_10.txt: entries=9 e2692659c196d2d5
+/lang_11.txt: entries=7 62a4d878088abea1
+/lang_12.txt: entries=6 f6b81c4b450d04c2

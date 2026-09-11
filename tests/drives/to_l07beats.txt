@@ -1,0 +1,111 @@
+# Loop A (M13, loop #37): the l07_7_cr tail + l07_7 PER-BEAT drive —
+# ONE script, both sides. Route (recon in docs/loop-decode-notes.md #37):
+# boot -> seeded callscript /l06_b.scr (op47 maze [3,4,6]) -> callentry 6
+# = l06_b's REAL exit (61673/61674 holds -> op29 /l07_7_cr.scr) under
+# framepace (the Martin op41->1305 one-frame walk window — the b14 class)
+# -> c0 the checkpoint hold -> callmode 0 -> the TEN op53 holds
+# 61675..61684 -> the walk-out (op25/op17/op11 750/op42/op21 Martin-gate)
+# -> the AUTOMATIC op29 chain into /l07_7.scr (no exit region; free-run,
+# game-time-pure — no pacing, the loop-31 lesson) -> c1 the mode-0 open
+# -> the artifact-region beats (entry 6 enter-hint; entry 7 take: op71
+# re-anchor (2432,640), op51 region clear, op18 cell (16,1)=3, op70
+# barrier clear, op50 exit region (41,27)-(44,28) 9/11/10, the 61980
+# hold) -> the exit-region hint/leave (entries 9/11 — hud text is not a
+# dump field and the band paints clipped (the loop-13 class): c2==c1
+# pins "no other side effect"; the port test asserts the hud state at
+# the split points) -> entry 10 = op29 /l08_8_cr.scr PACED (its open
+# runs op45 BEFORE op12 — NO mode-0 frame, Martin/Jauffre freeze AT
+# SPAWN with walks armed; pacing kept per the plan's blanket _cr rule).
+# No kills, no rewards, no reload arms in either script (recon #37) —
+# the RNG is untouched after the maze generation.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# into the l06_b maze (op47 [3,4,6] at load — seed BEFORE the loader)
+pause
+setseed 7001
+callscript /l06_b.scr
+unpause
+wait 15000
+# the l06_b exit (entry 6): 61673/61674 -> op29 /l07_7_cr.scr — the
+# real chain link into Loop A's scripts; the load runs PACED
+framepace 50 2
+callentry 6
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 18000
+# c0: the l07_7_cr checkpoint hold (Martin frozen mid-walk at 1307)
+dumpworldg c0_world.txt
+dumpjtm c0_layers.txt
+dumpover c0_over.txt
+framepace 0
+# [assert-c0] mode 3; Martin pos 1307,936 walk 1305,936
+# the cutscene tail: ten op53 holds, then the walk-out + the auto chain
+callmode 0
+wait 3000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+# c1: the l07_7 mode-0 open (21 actors settled on their op17 nudges,
+# 3 op49 pickups, the artifact region (18,4)-(19,5) armed 6/11/7)
+dumpworldg c1_world.txt
+dumpjtm c1_layers.txt
+dumpover c1_over.txt
+# c2: the region-enter hint (entry 6, op39 61805) — c2 == c1 byte-wise
+callentry 6
+wait 2000
+dumpworldg c2_world.txt
+# [assert-c2] hud text = lang 61805 "Take Artifact"
+# c3: the artifact take (entry 7) + the 61980 hold
+callentry 7
+wait 3000
+# [assert-c3open] the 61980 dialogue hold is open (speaker slot 0)
+tap fire
+wait 2500
+dumpworldg c3_world.txt
+dumpjtm c3_layers.txt
+dumpover c3_over.txt
+# [assert-c3] respawn re-anchored 2432,640 (masked in dumpworldg)
+# c4: the exit-region enter hint (entry 9, op39 61807), then the leave
+# event (entry 11, op40 hud clear)
+callentry 9
+wait 2000
+dumpworldg c4_world.txt
+# [assert-c4] hud text = lang 61807 "To Bruma"
+callentry 11
+wait 2000
+# [assert-c4b] hud text cleared by the leave event
+# c5: the exit (entry 10 -> Call 11 + op29 /l08_8_cr.scr) PACED
+framepace 50 2
+callentry 10
+wait 18000
+dumpworldg c5_world.txt
+dumpjtm c5_layers.txt
+dumpover c5_over.txt
+framepace 0
+# [assert-c5] mode 3 (the l08 checkpoint, op45 pre-op12); Martin at
+# SPAWN 1327,936 walk 1305,936; Jauffre 1030,547 walk 1030,548

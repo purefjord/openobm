@@ -1,0 +1,33 @@
+# L02 "The Illegitimate Son" (l02_2_1.scr -> l03_1.jtm) opening parity drive
+# (loop #25) — ONE script, both sides.
+#
+# l02_2_1 entry 1: op73; free the boot PNGs; op56 loads /lang.cml (so the
+# cutscene dialogues RESOLVE — unlike the sewers exit path); op8 loads
+# /l03_1.jtm + /l03_l3.cml; entry 3 spawns Champion + Jauffre + Guard; op45
+# (void_f: k=4) + op12 (mode 0); entry 4 = the cutscene. Entry 4 walks the
+# actors (op41/42 set X/Y, op21 gates arrival) then HALTS at its first op53
+# dialogue (Jauffre: "You there! Why do you wear the robes of the Emperor?!").
+# The cutscene ends by chaining op29 -> /l02_2.scr.
+#
+# We reach L02 by callscript (the real b.a(String) loader) from the L01 hold,
+# the same clean jump the maze/sewers gates use. All opcodes are already
+# ported (op41/42/46/53/34/25/36/17/26/56/45/76 + the usual), so this is a
+# VALIDATION loop: no combat/maze RNG on this path (scripted walks only), the
+# map (op8) + NPC spawns are op-driven, so the state at the first-dialogue
+# hold is deterministic. dumpworldg masks the CARRIED player (inv/hud/dialogue)
+# since the maze op15-style reuse of the fight-chaos player still applies.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l02_2_1.scr
+unpause
+wait 18000
+dumpjtm l02_layers.txt
+dumpover l02_over.txt
+dumpworldg l02_world.txt

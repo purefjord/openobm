@@ -1,0 +1,28 @@
+# L02 CUTSCENE proper (loop #27): drive PAST the checkpoint into the Jauffre
+# cutscene. The L02 opening pauses at the op45 checkpoint menu (mode 3) — see
+# to_l02.txt. Selecting "Continue Playing" = the real `b.a((byte)0)` (loop #20:
+# "Continue Playing = a((byte)0) only"), so `callmode 0` resumes the VM: op12,
+# then entry 4 (the cutscene). Entry 4 walks the actors (op41/42, op21 gates
+# arrival) then HALTS at its first op53 dialogue (Jauffre: "You there! Why do
+# you wear the robes of the Emperor?!"). op56 loaded /lang.cml in entry 1, so
+# the text may resolve even headless.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l02_2_1.scr
+unpause
+wait 18000
+pause
+callmode 0
+unpause
+wait 15000
+dumpjtm l02cut_layers.txt
+dumpover l02cut_over.txt
+dumpworldg l02cut_world.txt
+dumpworld l02cut_world_full.txt

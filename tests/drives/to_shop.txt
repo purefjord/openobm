@@ -1,0 +1,73 @@
+# Loop #20 fixtures: the SHOP (mode 1) + the m22 interrupt screen. ONE
+# script, both sides. The shop is script-gated (op45 -> b.f(); no entry-1
+# path reaches it and L01 ships NO subtype-7 stock), so the drive uses the
+# loop-#13 inject pattern at the settled L01 first-dialogue hold:
+#   setflat  = write a deterministic stock list into e.f:[I
+#              (axe 110g RED for the Monk, Iron Club 65g buyable,
+#               Leather Bracer 50g, Minor Healing Potion 25g)
+#   callf    = the REAL op45 native b.f() (page 4, mode 3) — from there
+#              everything runs through real input: Go Shopping fire = o(),
+#              buy/sell activations, BACK, Continue Playing.
+#   callhide/callshow = the real hideNotify/showNotify (the m22 interrupt
+#              is unreachable on headless FreeJ2ME otherwise).
+# Pins: q2 == q1 (fire on a RED item is dead), the buy REBUILD (gold title
+# 100 -> 35, cursor reset), quarter-price sells (+16 -> 51), the sell of
+# the EQUIPPED club re-arming the bought one, m22 YES restoring mode 3.
+# No g() call anywhere -> the wiped RMS baseline stays clean.
+# Prelude timings = to_l01_fast.txt (timescale 10).
+# GOTCHA (this drive's first run): the timescale boot is timing-marginal —
+# the title->menu transition costs UNSCALED real time (gc sleeps + loads),
+# and a tap landing inside it is EATEN (the whole drive shifts one screen).
+# Pad the menu-navigation waits generously; they are cheap real seconds.
+timescale 10
+modelog shopmodes.txt
+wait 6000
+tap fire
+wait 2500
+tap fire
+wait 1000
+tap fire
+wait 20000
+setflat 0 1 0 7 1 1 2 1
+callf
+wait 700
+shot q0_checkpoint_menu.png
+tap fire
+wait 700
+shot q1_shop_buy.png
+tap fire
+wait 500
+shot q2_buy_disabled_noop.png
+tap down
+wait 500
+tap fire
+wait 700
+shot q3_after_buy.png
+dumpworld qw1_after_buy.txt
+tap right
+wait 500
+shot q4_sell.png
+tap fire
+wait 700
+shot q5_after_sell.png
+dumpworld qw2_after_sell.txt
+tap 21
+wait 700
+shot q6_menu_back.png
+callhide
+wait 500
+callshow
+wait 700
+shot q7_interrupt.png
+tap 22
+wait 700
+shot q8_menu_restored.png
+tap right
+wait 500
+tap right
+wait 500
+shot q9_menu_continue.png
+tap fire
+wait 700
+shotnorm q10_gameplay_restored.png
+modelogstop

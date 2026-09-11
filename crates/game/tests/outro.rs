@@ -42,7 +42,7 @@ fn assert_parity(fb: &Fb, fixture: &str, label: &str) {
 
 #[test]
 fn outro_drive_matches_the_oracle() {
-    let script = std::fs::read_to_string(root().join("oracle/to_outro.txt")).unwrap();
+    let script = std::fs::read_to_string(root().join("tests/drives/to_outro.txt")).unwrap();
     let mut shell = boot_shell();
     let artifacts = game::script::drive(&mut shell, &script).unwrap();
     let mut frames = 0;

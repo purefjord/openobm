@@ -47,7 +47,7 @@ const TO_M5: &str = "wait 12000\ntap fire\nwait 1000\ntap right\nwait 300\ntap f
 /// The unified two-sided gate: the oracle's script, byte-identical shots.
 #[test]
 fn small_menus_drive_matches_the_oracle() {
-    let script = std::fs::read_to_string(root().join("oracle/to_smallmenus.txt")).unwrap();
+    let script = std::fs::read_to_string(root().join("tests/drives/to_smallmenus.txt")).unwrap();
     let mut shell = boot_shell();
     let shots: Vec<(String, Fb)> = game::script::drive(&mut shell, &script)
         .unwrap()

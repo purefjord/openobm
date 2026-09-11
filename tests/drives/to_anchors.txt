@@ -1,0 +1,41 @@
+# Gameplay parity anchors (M11 loop #13): drive to the L01 first-dialogue
+# hold (same choreography as to_l01.txt), then capture more normalized-shot
+# anchors past it:
+#   a0  the first-dialogue hold again (cross-run determinism vs the committed
+#       l01_dialogue1_norm.png fixture)
+#   a1  the SECOND dialogue hold ("Quick, Emperor, the secret passageway...")
+#   a2  the same hold 1s later (a1 == a2 pins that the hold is settled)
+#   a3  floating combat text injected at the hold while PAUSED (slot 3 "12" =
+#       the plain red damage-number path, slot 2 lang471 "- Dodge - " = the
+#       green string-compare path), then normalized + shot; the tick fades the
+#       floats back to the self-healed zero state after the unpause
+#   a4  the pickup-proximity hint: player teleported (the real op36 native)
+#       next to the op49 marker at tile (21,30) (the nearby scamps have E=1 —
+#       no aggro), camera re-followed to the player (the real op26 native),
+#       then ~800ms of live ticks fire the lang-363 "Examine" HUD hint
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 1000
+tap fire
+wait 2500
+wait 48000
+shotnorm a0_dialogue1.png
+tap fire
+wait 4000
+shotnorm a1_dialogue2.png
+wait 1000
+shotnorm a2_dialogue2_again.png
+dumpworld a_world2.txt
+pause
+setfloat 3 12
+setfloat 2 lang471
+shotnorm a3_float.png
+wait 1500
+pause
+teleport 0 2752 3904
+follow 0
+unpause
+wait 800
+shotnorm a4_pickup_hint.png

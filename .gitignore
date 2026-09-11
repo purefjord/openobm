@@ -28,6 +28,10 @@
 
 # Verbatim dump of the game's complete string table.
 /crates/eso-tools/tests/snapshots/golden__lang_dump.snap
+# insta writes pending snapshots next to the accepted ones; a pending snapshot
+# holds the same content as the real one, so it must be blocked too.
+*.snap.new
+*.pending-snap
 
 # The original MIDlet itself, in any form.
 *.jar

@@ -1,0 +1,92 @@
+# Loop E (M13, loop #41): l11_11_cr + l11_11 PER-BEAT drive — ONE script,
+# both sides (recon: docs/loop-decode-notes.md #41). l11_11_cr is a
+# PLAYABLE Cloud Ruler scene (a "Talk" region whose action fires an exit
+# cutscene with op68 impact flashes -> op29 /l11_11.scr); l11_11 is a
+# BOSS level (Mankar Camoran, the oh_liches slot-1 boss; the exit is a
+# scripted kill: region 7 arms the boss k=8, killing it -> op29
+# /l12_12.scr). op68 is already ported (the 68|69 effects-spawn arm) so
+# NO engine change. Entry: callscript /l11_11_cr.scr DIRECT (the
+# l10->l11_11_cr chain was already fired in loop-40's f3; l11 carries no
+# l10 rewards). The boss's FAITHFUL KILLER is the PLAYER (a player-vs-
+# boss fight), so pause+setseed+sethp 1 1+callhit 0 1 is faithful even
+# though the boss is a lich (the boss is the VICTIM, the humanoid player
+# swings). Cadence: l11_11_cr's open + l11_11's open are op12-into-a-
+# free-cutscene / op12-direct (NO op45) -> g0/g1/g2 are cadence-free, NO
+# framepace. But l12_12's open IS op12-THEN-op45 (a Martin op42 walk-
+# window) -> the boss-kill's op29 load runs PACED so g3 pins Martin.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# load l11_11_cr direct -> the opening cutscene's 61710 hold (mode 0;
+# Martin arrives at 1305 before the player-gated hold — cadence-free)
+pause
+callscript /l11_11_cr.scr
+unpause
+wait 18000
+# g0: the l11_11_cr Cloud Ruler open at the 61710 hold
+dumpworldg g0_world.txt
+dumpjtm g0_layers.txt
+dumpover g0_over.txt
+# [assert-g0] mode 0; player 1026,1064; Martin 1305,936; Jauffre 1030,548
+# dismiss 61710 -> the Talk region: hint (e8) + the exit cutscene (e9 ->
+# Call 5: player walks, THREE holds 61711/61712/61713, op68 flashes,
+# op29 -> /l11_11.scr)
+tap fire
+wait 2500
+callentry 8
+wait 2000
+callentry 9
+wait 3000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+# g1: the l11_11 boss-level open (Mankar Camoran slot 1, 2 dremora, 2
+# pickups; op68 flashes cleared by the op29 load)
+dumpworldg g1_world.txt
+dumpjtm g1_layers.txt
+dumpover g1_over.txt
+# [assert-g1] mode 0; player 3800,533; boss slot 1 "Mankar Camoran"
+# (oh_liches); dremora slots 2,3
+# the boss encounter (region 7 -> e7): player walks to (554,557), the
+# 61714 hold (boss speaks), then op32 arms the boss k=8
+# the encounter walks the player 3800,533 -> 554,557 (~3250 units,
+# op21-gated); a long walk needs generous settle (the loop-39 lesson:
+# the port's fixed 50ms frames truncate movement per-frame differently
+# from the oracle, so a long walk lags at a short wait — both arrive at
+# the exact target with enough time)
+callentry 7
+wait 12000
+# g2: the 61714 boss-encounter hold (player 554,557; boss still at
+# 1157,634, E=1, k not yet armed)
+dumpworldg g2_world.txt
+dumpjtm g2_layers.txt
+dumpover g2_over.txt
+# [assert-g2] the 61714 hold is open; player 554,557; boss slot 1 present
+# dismiss -> the boss walks + op34 E=8000 + op32 k=8 armed -> the seeded
+# kill (player is the faithful humanoid attacker) -> e8 -> op29
+# /l12_12.scr, PACED (l12_12's op45 Martin walk-window); the free-run
+# also caps the player's swing-drained fatigue (the loop-39 recipe)
+tap fire
+wait 2500
+pause
+setseed 11001
+sethp 1 1
+callhit 0 1
+unpause
+framepace 50 2
+wait 20000
+# g3: the l12_12 checkpoint (mode 3), Martin pinned at the paced walk
+dumpworldg g3_world.txt
+dumpjtm g3_layers.txt
+dumpover g3_over.txt
+framepace 0
+# [assert-g3] mode 3 (the l12_12 Great Gate checkpoint); the boss kill
+# leveled the player to 2 (o=2, hp 122/122, fat capped 30/30)

@@ -1,0 +1,93 @@
+# ALL remaining levels (loop #29) — one combined drive: callscript each level
+# from the L01 hold, settle, dump. Every level's opcodes are ported (global
+# check); only end_15 needs op77 (credits), now wired. Run twice for stability.
+#
+# 2026-07-17: boot taps padded to 3000ms gaps (the 1000/500 gaps went marginal
+# — the loop-20 eaten-tap gotcha now fires on this machine). The l05 segment
+# runs under `framepace 50` (2026-07 pacer): its op45 checkpoint freezes the
+# throne-procession walkers mid-walk after a FRAME-counted window, so their
+# rest positions are frame-cadence state — pacing pins the oracle to the
+# port's fixed-50ms cadence (pos 2084/2081) and the world dump goes byte-
+# exact (the old 2-field mask is retired). Pacing stays OFF for every other
+# level: their dumps are settled or game-time-instant state that free-running
+# timescale reproduces (pacing would make wait-boundary game time CPU-bound).
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+pause
+callscript /l04_4.scr
+unpause
+wait 13000
+dumpjtm l04_layers.txt
+dumpover l04_over.txt
+dumpworldg l04_world.txt
+pause
+framepace 50 2
+callscript /l05_5.scr
+unpause
+wait 13000
+dumpjtm l05_layers.txt
+dumpover l05_over.txt
+dumpworldg l05_world.txt
+framepace 0
+pause
+callscript /l06_6.scr
+unpause
+wait 13000
+dumpjtm l06_layers.txt
+dumpover l06_over.txt
+dumpworldg l06_world.txt
+pause
+callscript /l07_7.scr
+unpause
+wait 13000
+dumpjtm l07_layers.txt
+dumpover l07_over.txt
+dumpworldg l07_world.txt
+pause
+callscript /l08_8.scr
+unpause
+wait 13000
+dumpjtm l08_layers.txt
+dumpover l08_over.txt
+dumpworldg l08_world.txt
+pause
+callscript /l09_9.scr
+unpause
+wait 13000
+dumpjtm l09_layers.txt
+dumpover l09_over.txt
+dumpworldg l09_world.txt
+pause
+callscript /l10_10.scr
+unpause
+wait 13000
+dumpjtm l10_layers.txt
+dumpover l10_over.txt
+dumpworldg l10_world.txt
+pause
+callscript /l11_11.scr
+unpause
+wait 13000
+dumpjtm l11_layers.txt
+dumpover l11_over.txt
+dumpworldg l11_world.txt
+pause
+callscript /l12_12.scr
+unpause
+wait 13000
+dumpjtm l12_layers.txt
+dumpover l12_over.txt
+dumpworldg l12_world.txt
+pause
+callscript /end_15.scr
+unpause
+wait 13000
+dumpjtm end15_layers.txt
+dumpover end15_over.txt
+dumpworldg end15_world.txt

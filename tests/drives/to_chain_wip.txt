@@ -1,0 +1,136 @@
+# M14a WORK IN PROGRESS -- the CONTINUOUS CHAIN drive (NOT yet a gate).
+#
+# WHAT THIS IS: from a real cold boot, fire each level's exit op29 in turn
+# with NO callscript anywhere, so every level loads with the REAL
+# predecessor's VM section tables + string-pool tail -- the carry surface
+# docs/m14-phase0-transition-audit.md sec.3 identified as the actual gap.
+#
+# WHAT THIS IS NOT -- READ BEFORE CALLING IT A PLAYTHROUGH:
+# `callentry <exit>` pushes the exit trigger directly. It does NOT walk the
+# player into the exit region and it does NOT satisfy the level's own
+# progression gating. l01_1 is the proof: its exit region (31,4)-(33,5)
+# action=30 is installed by entry 1 at LOAD, but the PATH to it stays walled
+# until entry 31 runs op18/op22 cell writes at (33..36,43) -- and entry 31 is
+# the tail of a FIVE-LINK DEATH-TRIGGER CHAIN:
+#     entry 1/7/9  op32 [4,0,10]  -> kill actor 4  -> entry 10
+#     entry 10     op32 [3,0,11]  -> kill actor 3  -> entry 11
+#     entry 11     op32 [1,0,12]  -> kill actor 1  -> entry 12
+#     entry 12     op32 [5,0,13]  -> kill actor 5  -> entry 13
+#     entry 13     op32 [6,0,31]  -> kill actor 6  -> entry 31 (barrier down)
+# The prison fight is MANDATORY for a real player; this drive skips it.
+# A true credits run must PLAY each level's gates (seeded kills, the M13
+# recipe), not merely push its exit. Scope this honestly.
+#
+# STATUS: reaches l02_2. Two previously-never-fired edges now fire clean:
+#   boot -> l01_1 --[callentry 30]--> l02_2_1 --[callmode 0 + dismissals]-->
+#   l02_2.  modelog: 6->15->3 then 6->15->0, zero m=11 (no deaths).
+#   Player position resyncs at every load (Phase 0 sec.2 confirmed live:
+#   L01 4514,5513 -> l02_2_1 4265,2828 -> l02_2 1722,1934).
+#
+# CALIBRATION LEARNED (vs the old to_playthrough.txt):
+#   - dialogue/menu taps at 2500-3000ms. to_playthrough's 400ms is the
+#     documented eaten-tap drift and is what desynced it ~8 levels in.
+#   - op29 load settles 18000ms, not 8000.
+#   - `callmode 0` past an op45 checkpoint is a PROVEN committed idiom
+#     (to_l10beats) -- it was not a suspect after all.
+#
+# TRAP for any future blind drive: dismissing L01 all the way through the
+# assassination and standing passive KILLS the player (mode 11), and mode
+# 11's "Continue?" YES is the SAME FIRE key as a dialogue dismissal -- so
+# blind tapping silently resurrects and carries on as if nothing happened.
+# Always arm `modelog` from boot and assert zero m=11.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+modelog pf_modes.txt
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+# l01_1 -> l02_2_1 (NEVER fired before Phase 0; fires clean here)
+pause
+callentry 30
+unpause
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 18000
+dumpworldg b1_l02_2_1.txt
+# l02_2_1: op45 checkpoint -> resume, then its entry-4 cutscene chains
+# AUTOMATICALLY to l02_2 once every hold is dismissed (no callentry needed).
+callmode 0
+wait 8000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+wait 18000
+dumpworld c2_full.txt
+dumpworldg c2.txt
+modelogstop

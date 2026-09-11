@@ -1,0 +1,31 @@
+# Boot visuals for the M11 VM-driven boot slice: the three logo pages (static
+# during their 2s windows -> gate-able), the legal scroll (visual-only), the
+# settled title, and a class-order pin (RIGHT from Monk must give Nightblade —
+# the real table order lang 9..16; loop-recon.md's prose listed it wrong).
+# Run with a WIPED rms/ (empty RecordStore: no Continue item).
+# Window timings from artifacts/recon/modes.txt: loader ends ~7.0s; logos 2s
+# each; legal ~13.7-16.0s; title settles 16.0s+.
+modelog bootmodes.txt
+wait 8000
+shot b0_logo1.png
+wait 2200
+shot b1_logo2.png
+wait 2200
+shot b2_logo3.png
+wait 2300
+shot b3_legal.png
+wait 6300
+shot b4_title.png
+tap fire
+wait 4000
+shot b5_menu.png
+tap fire
+wait 4000
+shot b6_class_monk.png
+tap right
+wait 700
+shot b7_class_right1.png
+tap right
+wait 700
+shot b8_class_right2.png
+modelogstop

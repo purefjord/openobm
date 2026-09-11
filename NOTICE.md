@@ -46,17 +46,3 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual-licensed as above, without any additional terms or conditions.
-
-### Carve-out: `oracle/patches/` is GPLv3
-
-The five Java files in `oracle/patches/` are **modified versions of FreeJ2ME
-source files** and remain under the **GNU General Public License v3.0 or later**,
-as stated in their own file headers. FreeJ2ME is copyright its respective authors
-(<https://github.com/hex007/freej2me>).
-
-These files are **development tooling only**. They are applied to a local
-FreeJ2ME checkout to instrument the reference interpreter during validation.
-They are not compiled into, linked against, or distributed with any OpenOBM
-binary, and the dual-licensed Rust crates carry no copyleft obligation from them.
-
-If you redistribute `oracle/patches/`, you must do so under GPLv3.

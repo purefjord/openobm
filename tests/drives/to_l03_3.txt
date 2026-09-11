@@ -1,0 +1,20 @@
+# l03_3.scr (the L02->next-quest chain target, loads /l03_1.jtm) LOAD gate
+# (loop #28). l02_2.scr chains here via op29. Reached by callscript. Entry 1:
+# op64 bg; op25; op67/58; op56 loads /lang.cml; op8 loads /l03_1.jtm; op71
+# respawn; op69 effect; entry 3 spawns Champion; op42 walk; op19; entry 4/6
+# region setup. All opcodes ported. dumpworldg masks carried/racy state.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l03_3.scr
+unpause
+wait 12000
+dumpjtm l03_3_layers.txt
+dumpover l03_3_over.txt
+dumpworldg l03_3_world.txt

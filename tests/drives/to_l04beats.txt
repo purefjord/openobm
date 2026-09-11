@@ -1,0 +1,141 @@
+# l04_4 ("Daedroth in Kvatch", quest 4) PER-BEAT drive (loop #33) — ONE
+# script, both sides. The quest: the load parks at an op45 CHECKPOINT
+# (mode 3, callmode 0 = Continue Playing resumes); slot 1 (dremora, k=6)
+# guards the plaza — killing it fires entry 6 which arms the choice region
+# (10,18)-(11,19) [enter=7 hint / action=8]; FIRE there runs the 61770
+# choice dialogue then RE-ARMS action=10 = op29 /l04_4r.scr (the optional
+# 3-floor side maze, leg B below). Region (26,11)-(28,11) enter=13 is the
+# DAEDROTH reveal: hud-off cutscene spawns slots 8+9 (slot 9 = the
+# Daedroth, k=16), two op53 holds, then Call 14 re-anchors respawn to
+# (1129,877) and ARMS THE PLAYER'S OWN k=15 — dying to the Daedroth fires
+# entry 15 (re-arm enter=14 = the retry path), a mechanism no earlier
+# level exercised. Killing the Daedroth fires entry 16: the locked exit
+# (26,1)-(28,2) action swaps 21 ("Locked") -> 22 = op29 /l05_5.scr.
+# Entry 18 (the bridge): op52 walks the player (738,700) -> (1144,700)
+# while op22 rewrites the collision cells (6..9,10/11) + op18's load-time
+# tile — the first mid-level LAYER mutation gate (dumpjtm).
+#
+# Kills are DETERMINISTIC (loop-32 recipe): pause, setseed, sethp <tgt> 1,
+# callhit <att> <tgt>. The ambient op69 fire at (3574,376) sits on the
+# exit cells; the player never stands there at a dump. l05_5's world dump
+# is frame-cadence-poisoned (loop #31) — leg A's exit hold gates layers +
+# overlays only. Leg B seeds BEFORE callentry 10 so op47 generation #1 is
+# deterministic (loop-22 pattern); its hold is the entry-4 first op53.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l04_4.scr
+unpause
+wait 12000
+# b0: the op45 checkpoint hold (mode 3; overlays armed by entry 1's Call 4)
+dumpworldg b0_world.txt
+dumpover b0_over.txt
+callmode 0
+wait 3000
+# b1: kill the k=6 plaza guard (slot 1) -> entry 6 (wait 600 + region arm)
+pause
+setseed 2001
+sethp 1 1
+callhit 0 1
+unpause
+wait 4000
+dumpworldg b1_world.txt
+dumpover b1_over.txt
+# b2: the choice dialogue (entry 8: disarm + 61770 by the Champion + re-arm
+# action=10); dump AT the open hold, then dismiss and pin the re-arm
+callentry 8
+wait 3000
+dumpworldg b2_world.txt
+tap fire
+wait 3000
+dumpover b2_over.txt
+# b3: the Daedroth reveal (entry 13): hud-off, spawns slots 8+9, camera
+# hold, first op53 hold (61546 by slot 8)
+callentry 13
+wait 4000
+dumpworldg b3_world.txt
+# b4: dismiss both holds -> Call 14 (walk, re-follow, hud on, wait 2500,
+# attr writes, op71 respawn (1129,877), op32 player k=15); settle
+tap fire
+wait 2000
+tap fire
+wait 6000
+dumpworldg b4_world.txt
+dumpover b4_over.txt
+# b5: die at the Daedroth's side -> the player's k=15 fires entry 15
+# (re-arm enter=14) while the death screen shows; then YES (key 22)
+# resumes with the re-inited player at the new respawn anchor. The
+# killer is slot 8 (the humanoid escort): a CREATURE attacker never
+# enters h.a(bl=true) in nature (creatures strike through the h.c cast
+# path), and callhit is the real h.a — keep the inject natural. Two
+# swings in case the first misses (loop-32's 1003 pattern). NOTE key 22
+# is the item menu in mode 0 — only ever tap it at the mode-11 screen.
+pause
+setseed 2002
+sethp 0 1
+callhit 8 0
+sethp 0 1
+callhit 8 0
+unpause
+wait 4000
+dumpworldg b5_world.txt
+dumpover b5_over.txt
+tap 22
+wait 3000
+# b6: kill the Daedroth (slot 9, k=16) -> entry 16 swaps the exit open
+# (action 21 -> 22)
+pause
+setseed 2003
+sethp 9 1
+callhit 0 9
+unpause
+wait 4000
+dumpworldg b6_world.txt
+dumpover b6_over.txt
+# b6.5: clear the plaza dremora (slot 4) — the bridge path passes
+# ~495 units from its post (inside E=500), so the scripted walk aggros
+# it on BOTH sides and the chase/attack cadence is frame-paced (loop-31
+# class): the port's player dies mid-walk where the oracle's survives.
+# Neutralize the loop-32 way: a seeded kill before the walk.
+pause
+setseed 2004
+sethp 4 1
+callhit 0 4
+unpause
+wait 2000
+# b7: the bridge (entry 18): op52 walks the player across while op22
+# opens the collision cells; op71 re-anchors respawn (1272,997). The
+# double walk from the respawn anchor is ~2800 units — give it time.
+callentry 18
+wait 6000
+dumpworldg b7_world.txt
+dumpjtm b7_layers.txt
+# b8: the spine exit (entry 22: op29 /l05_5.scr) -> the l05 checkpoint
+# hold; its world is cadence-poisoned (loop #31) so gate layers+overlays
+callentry 22
+wait 18000
+dumpjtm b8_layers.txt
+dumpover b8_over.txt
+# leg B: back into l04_4, straight to the side-maze link (entry 10 = op29
+# /l04_4r.scr); seed BEFORE the fire so op47 generation #1 is
+# deterministic — this load-gates the LAST unvalidated level
+pause
+callscript /l04_4.scr
+unpause
+wait 12000
+callmode 0
+wait 3000
+pause
+setseed 3001
+callentry 10
+unpause
+wait 15000
+dumpworldg b9_world.txt
+dumpjtm b9_layers.txt
+dumpover b9_over.txt

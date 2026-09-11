@@ -44,7 +44,7 @@ fn fixture(name: &str) -> String {
 #[test]
 fn maze_exit_chain_matches_the_real_game() {
     let script =
-        std::fs::read_to_string(root().join("oracle/to_sewers.txt")).expect("drive script");
+        std::fs::read_to_string(root().join("tests/drives/to_sewers.txt")).expect("drive script");
     let mut s = boot_shell();
     let artifacts = game::script::drive(&mut s, &script).expect("drive");
     for name in [

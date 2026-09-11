@@ -119,7 +119,7 @@ fn class_fire_loads_l01_into_gameplay() {
 #[test]
 fn unified_l01_fast_drive_matches_the_oracle() {
     let script =
-        std::fs::read_to_string(root().join("oracle/to_l01_fast.txt")).expect("drive script");
+        std::fs::read_to_string(root().join("tests/drives/to_l01_fast.txt")).expect("drive script");
     let mut s = boot_shell();
     let artifacts = game::script::drive(&mut s, &script).expect("drive");
     let fixture = |name: &str| {
@@ -563,7 +563,8 @@ fn quick_heal_consumes_an_armed_potion() {
 /// shows, checkmarked), and BACK at a top page closes to mode 0.
 #[test]
 fn action_menu_at_parity() {
-    let script = std::fs::read_to_string(root().join("oracle/to_menu.txt")).expect("drive script");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_menu.txt")).expect("drive script");
     let mut s = boot_shell();
     let artifacts = game::script::drive(&mut s, &script).expect("drive");
     for name in [

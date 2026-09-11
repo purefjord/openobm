@@ -1,0 +1,23 @@
+# Fixed-scroll text-page anchors (M11 loop #14): the m10 intro page and the
+# m4 About credits render at pinned scrolls. Both pages auto-scroll on the
+# wall clock (run() dt), so each anchor pauses the loop, injects the scroll
+# (setscroll == the Rust side's Shell::set_scroll), and takes a normalized
+# shot. Scroll picks keep the paint's end-of-text condition FALSE (an end
+# edge inside the shot's synchronous repaint would fire the mode
+# transition): m10 total pitch 143 -> g=180 puts every intro line on the
+# visible LCD with final y 326 > the 305 limit; m4's long roll at g=-50
+# shows the credits head with final y far past the limit.
+#
+# Drive 1: cold boot -> menu -> New Game -> Monk fire -> please-wait ->
+# the intro page (m=10 enters ~15.7s after the class fire, runs ~14.5s).
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 1000
+tap fire
+wait 2500
+wait 17000
+pause
+setscroll 180
+shotnorm t0_intro_g180.png

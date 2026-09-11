@@ -1,0 +1,87 @@
+# Loop D (M13, loop #40): l10_10_cr + l10_10 PER-BEAT drive — ONE
+# script, both sides (recon: docs/loop-decode-notes.md #40). The
+# artifact-fetch pattern (== l07_7): NO op32/op47, no kills, no seeds.
+# Entry: callscript /l10_10_cr.scr DIRECT (NOT via l09_9's exit —
+# l09_9's entry-1 opening cutscene HALTS on a dialogue, so callentry
+# after it would queue behind the halt; direct-load is the plan's
+# "where practical" hedge, and l10_10 carries no rewards so cumulative
+# carry is moot). NORMAL SPEED throughout — NO framepace anywhere:
+# l10_10_cr's op12-then-op45 checkpoint IS the Martin walk-window
+# class, but that checkpoint is ALREADY byte-gated as loop-39's e7
+# (Martin at 1307), so THIS loop does NOT re-dump it (skip f0; the port
+# test just asserts mode 3 there). Every gated dump (f1/f2/f3) is
+# CADENCE-FREE: the l10_10 open's player op41 walk arrives (1 unit),
+# its 9 kind-6 scamps are STATIC (no walks) and all outside E=800
+# aggro of the (4618,3000) spawn, and l11_11_cr's Martin (22-unit walk)
+# arrives long before its player-gated 61710 hold.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# load l10_10_cr direct -> its op45 checkpoint (mode 3)
+pause
+callscript /l10_10_cr.scr
+unpause
+wait 18000
+# [assert-f0] mode 3 (the l10_10_cr checkpoint; Martin's exact frozen x
+# is the cadence class, byte-gated under framepace as loop-39's e7 — not
+# re-dumped here)
+# the _cr cutscene (player north walk, SIX holds 61704..61709, walk
+# back) -> the automatic op29 -> /l10_10.scr
+callmode 0
+wait 5000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+# f1: the l10_10 mode-0 open (9 static kind-6 scamps, 3 pickups, the
+# artifact region (3,2)-(5,3) armed 8/7/9)
+dumpworldg f1_world.txt
+dumpjtm f1_layers.txt
+dumpover f1_over.txt
+# [assert-f1] mode 0; player 4618,3000; 9 scamps slots 1..9; respawn
+# 4619,3000
+# the artifact hint (e8, transient) + the take (e9)
+callentry 8
+wait 2000
+callentry 9
+wait 3000
+# [assert-f2open] the 61935 hold is open (speaker slot 0)
+tap fire
+wait 2500
+# f2: the l10 artifact take end-state at the 61935 hold — op51 cleared
+# the artifact region, op22/op18 rewrote cell (4,2), op70 cleared the
+# (449,411) barrier, op71 re-anchored respawn (512,640), op50 armed the
+# exit region (36,21)-(37,22) 10/7/11, op69 placed the (4750,2800)
+# barrier
+dumpworldg f2_world.txt
+dumpjtm f2_layers.txt
+dumpover f2_over.txt
+# [assert-f2] respawn re-anchored 512,640 (masked in dumpworldg)
+# the exit hint (e10, transient) + the exit (e11 -> op29 /l11_11_cr.scr)
+callentry 10
+wait 2000
+callentry 11
+wait 18000
+# l11_11_cr opens into its cutscene ending at the 61710 hold; dismiss it
+tap fire
+wait 3000
+# f3: l11_11_cr settled at its opening hold — the chain fired; Martin
+# arrived at 1305,936 (cadence-free: his 22-unit walk finishes long
+# before the player-gated hold)
+dumpworldg f3_world.txt
+dumpjtm f3_layers.txt
+dumpover f3_over.txt
+# [assert-f3] mode 0; player walked to 1026,1064; Martin at 1305,936

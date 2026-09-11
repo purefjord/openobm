@@ -1,0 +1,117 @@
+# l04_4r (the 3-FLOOR side maze off "Daedroth in Kvatch") PER-BEAT drive
+# (loop #34) — ONE script, both sides. Floor flow: op47 [1,5,6] carves
+# floor 1 (entry-cell action=5 = the leave-early chain, exit-cell
+# enter=6 = descend); entry 6 = dialogue 61778 + teleport (300,300) +
+# op47 [2,5,7] (floor 2, exit enter=7); entry 7 = dialogue 61779 +
+# teleport + op47 [3,5,8] (floor 3 — cfg[18]=0: NO spawn-loop enemies,
+# boss only: op15 slot 1 row 13 at (1024,1024), k=9, + op51/op18).
+# Killing the boss fires entry 9: wait 350, TRIPLE op37 (weapon 9,
+# armor 31, consumable 7), op35 (a real no-op — reads + discards), wait
+# 500, op29 /l04_4b.scr. The exit cell (enter=8) skips the reward to
+# the same script. l04_4b = the Kvatch REMATCH (same jtm, player at
+# (1508,2289), a second Daedroth pair k=12, exit -> /l05_5.scr).
+#
+# Determinism: setseed BEFORE each callentry that regens (the descend
+# dialogs hold the VM, but idle out-of-aggro-range enemies draw no RNG
+# — the loop-23 sewers gates proved idle maze ticking is RNG-silent
+# across cadences); every kill is the loop-32 seeded recipe; op29-load
+# settles use the sewers' 18s (unscaled-IO jitter).
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l04_4.scr
+unpause
+wait 12000
+callmode 0
+wait 3000
+pause
+setseed 4001
+callentry 10
+unpause
+wait 15000
+# b0: the floor-1 hold (opening op53 61772 open; 61773/61774 queued)
+dumpworldg b0_world.txt
+dumpjtm b0_layers.txt
+dumpover b0_over.txt
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+# b1: the entry-cell leave-early chain (action=5): dialogue 61767 +
+# re-arm (1,1)-(3,3) to enter=10/leave=11/action=12
+callentry 5
+wait 3000
+dumpworldg b1_world.txt
+tap fire
+wait 2000
+dumpover b1_over.txt
+# b2: descend to floor 2 (the exit cell's enter=6): dialogue 61778 ->
+# dismiss -> teleport + seeded regen
+pause
+setseed 4002
+callentry 6
+unpause
+wait 3000
+tap fire
+wait 4000
+dumpworldg b2_world.txt
+dumpjtm b2_layers.txt
+dumpover b2_over.txt
+# b3: descend to floor 3 (enter=7): dialogue 61779 -> teleport + seeded
+# regen + the k=9 boss pair spawn
+pause
+setseed 4003
+callentry 7
+unpause
+wait 3000
+tap fire
+wait 4000
+dumpworldg b3_world.txt
+dumpjtm b3_layers.txt
+dumpover b3_over.txt
+# b4: kill the boss -> entry 9: the triple op37 reward + op35 no-op +
+# op29 /l04_4b.scr -> the Kvatch-rematch opening (mode 0, no checkpoint)
+pause
+setseed 4004
+sethp 1 1
+callhit 0 1
+unpause
+wait 18000
+dumpworldg b4_world.txt
+dumpjtm b4_layers.txt
+dumpover b4_over.txt
+# leg B: the leave-early route converges on l04_4b — fresh maze, the
+# real entry-cell chain (5 -> dialogue -> dismiss -> action=12 -> op29)
+pause
+callscript /l04_4.scr
+unpause
+wait 12000
+callmode 0
+wait 3000
+pause
+setseed 4005
+callentry 10
+unpause
+wait 15000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+callentry 5
+wait 3000
+tap fire
+wait 2000
+callentry 12
+wait 18000
+dumpworldg b5_world.txt
+dumpover b5_over.txt

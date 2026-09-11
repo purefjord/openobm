@@ -1,0 +1,21 @@
+# l05 walker-freeze diagnostic at TIMESCALE 1 (loop #31). OUTCOME: the 1x
+# headless oracle STALLS the game — the real run() loop has NO sleep (frames
+# pace by repaint+gc cost), so headless 1x frame dt is a few game-ms and
+# integer-truncated movement (speed*dt/1000) rounds to ZERO: walkers never
+# move, op21 arrival gates never release, and the l05 load deadlocks
+# mid-script (the dump shows 11/18 actors, four walkers frozen 1 unit short
+# of their targets). Timescale 10 is what makes the sim FUNCTION headless,
+# not just a speed-up — there is no 1x cadence baseline. See
+# docs/loop-decode-notes.md loop #31.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 1000
+tap fire
+wait 55000
+pause
+callscript /l05_5.scr
+unpause
+wait 13000
+dumpworldg l05_world_1x.txt

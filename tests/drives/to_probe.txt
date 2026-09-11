@@ -1,0 +1,3 @@
+timescale 10
+wait 1900
+shot probe.png

@@ -1,0 +1,28 @@
+# Exit-dialog (m=19) fixtures for M11: boot to the main menu, LEFT wraps the
+# carousel to "Exit", fire opens the confirm dialog (static -> gate-able),
+# NO (key 21 = b:B) returns to the menu with the cursor STILL on Exit
+# (e:[B persists), fire re-opens, YES (key 22 = a:B) runs b.c(): mode 12 +
+# sleep(2000) + notifyDestroyed = System.exit on FreeJ2ME -- the JVM dies
+# mid-final-wait, so "DONE" never prints; the modelog (auto-flush) and all
+# shots are already on disk. Expect stdout: "MIDlet sent Destroyed
+# Notification". Run with a WIPED rms/ (empty RecordStore: no Continue item).
+# Timings as to_boot.txt: loader ends ~7.0s, title settles 16.0s+.
+modelog exitmodes.txt
+wait 21000
+tap fire
+wait 4000
+shot e0_menu_newgame.png
+tap left
+wait 700
+shot e1_menu_exit.png
+tap fire
+wait 1000
+shot e2_exit_dialog.png
+tap 21
+wait 1000
+shot e3_menu_after_no.png
+tap fire
+wait 1000
+shot e4_exit_dialog_again.png
+tap 22
+wait 2500

@@ -1,0 +1,15 @@
+# Drive to in-level gameplay, THEN open the pause menu (key 21) so the game loop /
+# AI sub-loop is suspended and the shared combat RNG (b.var_java_util_Random_a) is
+# idle while dumpAI seeds + invokes it. dumpAI swaps a synthetic 25-slot actor
+# array into b.var_j_arr_a (restored after) and drives the real per-actor tick
+# h.a(j,long,boolean) on an aggressive NPC through the real h.boolean_b AI.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumpai ai_real.txt

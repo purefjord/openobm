@@ -1,0 +1,30 @@
+# Cold boot -> menu -> New Game -> Monk class fire -> the L01 level load
+# (m = 6/7 loader -> 15 please-wait -> 10 intro text -> 0 gameplay) into the
+# entry-7 cutscene's first FIRE-gated guard dialogue. The modelog pins the
+# mode chain; the shots are visual review (animated screens, never gated);
+# dumpjtm captures the post-choreography layer state.
+wait 19000
+tap fire
+wait 4000
+modelog l01modes.txt
+shot l0_menu.png
+tap fire
+wait 1000
+shot l1_class.png
+tap fire
+wait 2500
+shot l2_please_wait_or_intro.png
+shotnorm n_please_wait.png
+wait 6000
+shot l3_intro_early.png
+wait 30000
+shot l4_intro_late_or_game.png
+wait 12000
+shot l5_first_dialogue.png
+shotnorm n_dialogue1.png
+dumpjtm l01_layers.txt
+dumpworld l01_world.txt
+tap fire
+wait 4000
+shot l6_after_dismiss.png
+modelogstop

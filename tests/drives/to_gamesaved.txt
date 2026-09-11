@@ -1,0 +1,13 @@
+# Capture the m13 "Game Saved" screen: drive to the L01 hold (any in-level
+# point works — the paint is state-free), then force mode 13 and shot. RMS
+# is untouched (no callsave), so the committed baseline stays wiped.
+wait 19000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+setmode 13
+wait 300
+shot game_saved.png

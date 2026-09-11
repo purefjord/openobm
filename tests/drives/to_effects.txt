@@ -1,0 +1,16 @@
+# Drive to in-level gameplay (so i.var_d_a = /oh_magic.cml is loaded and
+# b.var_j_arr_a is populated), THEN open the pause menu (key 21) so the game
+# loop doesn't call i.a(l) concurrently and race the pool we install. We then
+# swap in crafted pool images + a synthetic actor array and drive the REAL
+# i.a(long) frame-by-frame (see Instrument.dumpEffects).
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+shot effects_state.png
+dumpeffects effects_real.txt

@@ -1,0 +1,20 @@
+# Capture the LIVE ESO save blob (M9 completion + loop #18): drive to the
+# L01 second-dialogue hold (state-validated: the dumpworld matches the port
+# byte-for-byte), then invoke b.g() directly (callsave) — the savelog-hooked
+# RecordStore writes the raw record to -Doracle.savelog. The blob depends
+# only on var_byte_arr_f (progress {55,57,51}), bool_o, the level-script
+# name (var_java_lang_String_c = "/l01_1.scr"), and the player actor — all
+# settled at the hold — so it is deterministic. Run with:
+#   -Doracle.savelog=../artifacts/save/eso_real.bin
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+tap fire
+wait 4000
+callsave
+wait 500

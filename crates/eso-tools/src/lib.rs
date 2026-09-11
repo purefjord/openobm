@@ -14,17 +14,25 @@ use anyhow::{Context, Result};
 use formats::vm::StepKind;
 use formats::{parse_cml, parse_jtm, parse_lang_file, parse_scr, AssetStore, ScriptVm, Tables};
 
-/// The custom `mapforge`-authored assets that live alongside the original
-/// game assets (`/lush.*` open-world sim, `/palette.*` biome swatch). They are
-/// NOT part of the original binary, so the game-census summaries
-/// (`summarize_jtm`/`summarize_cml`/`scr_coverage`) skip them — those tools
-/// digest the ORIGINAL asset set (a new custom asset surfaces via the golden
-/// count assert, prompting an update here).
+/// Is this resource one of the original game's level assets?
+///
+/// An ALLOWLIST, deliberately. The original `.jtm`/`.scr`/`.cml` resources are
+/// named by four conventions — `lNN_*`, `end_*`, `startup*`, `oh_*` — so
+/// anything else is custom content: a map written by `mapforge`, or whatever
+/// else has been dropped into `assets/`. Excluding by pattern means new custom
+/// content is handled without touching this function.
+///
+/// This was a denylist of four literal filenames. It had to be edited every
+/// time custom content appeared, and when it wasn't, the golden counts broke
+/// with no hint as to why.
 fn is_original_asset(res: &str) -> bool {
-    !matches!(
-        res,
-        "/lush.jtm" | "/lush.scr" | "/palette.jtm" | "/palette.scr"
-    )
+    let name = res.strip_prefix('/').unwrap_or(res);
+    if name.starts_with("end_") || name.starts_with("startup") || name.starts_with("oh_") {
+        return true;
+    }
+    // lNN_ — the level naming convention (l01_1, l06_a, l13_clrl, ...).
+    let b = name.as_bytes();
+    b.len() > 3 && b[0] == b'l' && b[1].is_ascii_digit() && b[2].is_ascii_digit() && b[3] == b'_'
 }
 
 /// FNV-1a 64-bit hash — small, dependency-free, deterministic across platforms.
@@ -166,6 +174,33 @@ pub fn dump_lang(store: &AssetStore, ids: &[u8]) -> Result<String> {
         for (lang_id, text) in &table {
             writeln!(out, "{lang_id}\t{}", escape(text))?;
         }
+    }
+    Ok(out)
+}
+
+/// Compact per-table summary of the `lang_*.txt` string tables: entry count
+/// plus an FNV-1a over the canonical tab-separated body, exactly as
+/// [`summarize_jtm`] does for maps.
+///
+/// This is what the golden snapshot pins. The full [`dump_lang`] text is the
+/// game's own writing, so it is never committed; a hash proves the decode is
+/// stable without reproducing a single line of it.
+pub fn summarize_lang(store: &AssetStore) -> Result<String> {
+    let mut out = String::new();
+    for id in 0u8..=12 {
+        let res = format!("/lang_{id}.txt");
+        let bytes = store.load(&res).with_context(|| format!("loading {res}"))?;
+        let table = parse_lang_file(&bytes, id).with_context(|| format!("unknown lang id {id}"))?;
+        let mut body = String::new();
+        for (lang_id, text) in &table {
+            writeln!(body, "{lang_id}	{}", escape(text))?;
+        }
+        writeln!(
+            out,
+            "{res}: entries={} {:016x}",
+            table.len(),
+            fnv1a(body.as_bytes())
+        )?;
     }
     Ok(out)
 }

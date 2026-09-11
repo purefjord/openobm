@@ -23,7 +23,7 @@ fn fixture(name: &str) -> String {
 
 #[test]
 fn l03_3_level_load_matches_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l03_3.txt")).expect("drive");
+    let script = std::fs::read_to_string(root().join("tests/drives/to_l03_3.txt")).expect("drive");
     let mut s = boot_shell();
     let arts = game::script::drive(&mut s, &script).expect("drive");
     for name in ["l03_3_layers.txt", "l03_3_over.txt", "l03_3_world.txt"] {

@@ -1,0 +1,234 @@
+# The l06 COMPLEX ("Spies" -> the Great Gate approach) PER-BEAT drive
+# (loop #36) — ONE script, both sides, SEVEN level scripts. The real structure (richer than docs/level-chain.md
+# knew): l06_6_cr (Cloud Ruler: checkpoint -> guard walk-in/out cutscene
+# with op17/op21/op20) -> l06_6 (Bruma "Spies": 7 house regions, the spy
+# discovery (entry 21), the k=18 Mythic Dawn kill arming TWO branches —
+# direct action=20 -> /l06_6_ba.scr, or guard-talk action=23 -> entry 25
+# -> /l06_a.scr) -> l06_a (2-floor op47 maze [1,5,9]/[2,5,10]; entry-cell
+# leave-early re-arms action=8 -> /l06_6a.scr via op16; floor 2 holds a
+# CAPTIVE at cell (48,48) whose region fires the rescue -> /l06_6b.scr —
+# a script NO previous trace/gate ever saw) -> l06_6b (Bruma with the
+# rescued NPC; the talk (entry 16) rewards a Silver Shortsword, op37 tag
+# 22) -> l06_6_ba (/l14_1.jtm: opens at the 61671 guard hold; the k=6
+# guard DIES to the Mythic Dawn (the faithful killer) -> entry 6 arms
+# the exit region action=8) -> l06_b (op47 maze #3, [3,4,6]) -> exit
+# entry 6 -> /l07_7_cr.scr. Leg B covers the two alternate branches
+# (direct-to-ba, and leave-early -> l06_6a -> ba).
+#
+# Discipline: seed before every op47 generation AND every kill; fire
+# counts match dialogue holds EXACTLY (a no-dialogue fire swings the
+# weapon = stray RNG); op29-load settles 18s; kills via pause+setseed+
+# sethp+callhit (attacker always humanoid).
+#
+# 2026-07-17: boot taps padded to 3000ms gaps (the loop-20 eaten-tap drift);
+# the two Cloud Ruler opens (b0 + b14) load under `framepace 50` so Martin's
+# one-frame walk window is the port's fixed-50ms cadence (x=1307 byte-exact
+# — the mask_martin_pos era ends); pacing off everywhere else.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+pause
+framepace 50 2
+callscript /l06_6_cr.scr
+unpause
+wait 15000
+# b0: the Cloud Ruler checkpoint hold (Martin + Jauffre spawned)
+dumpworldg b0_world.txt
+dumpjtm b0_layers.txt
+dumpover b0_over.txt
+framepace 0
+# the cutscene: 61660 Martin -> 61661 Jauffre -> guard walk-in -> 61748
+# -> guard walk-out + op20 -> 61663 -> 61664 Champion (5 holds)
+callmode 0
+wait 3000
+tap fire
+wait 2500
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 2500
+tap fire
+wait 2500
+# b1: post-cutscene (the walk-in guard REMOVED via op20)
+dumpworldg b1_world.txt
+dumpover b1_over.txt
+# the talk region (entry 8): 61666/61667 with camera swaps
+callentry 8
+wait 2500
+tap fire
+wait 2000
+tap fire
+wait 2000
+# to Bruma (entry 10 -> /l06_6.scr); the open runs guard walks (op21s)
+callentry 10
+wait 18000
+# b2: the Bruma open (2 op75 guards arrived, 4 Mythic Dawn, door tiles)
+dumpworldg b2_world.txt
+dumpjtm b2_layers.txt
+dumpover b2_over.txt
+# b3: the spy discovery (entry 21): camera hold + 61669/61670
+callentry 21
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 2000
+dumpworldg b3_world.txt
+# b4: kill the k=18 Mythic Dawn (slot 6) -> 61668 + TWO branch regions
+pause
+setseed 6001
+sethp 6 1
+callhit 0 6
+unpause
+wait 3000
+tap fire
+wait 2500
+dumpworldg b4_world.txt
+dumpover b4_over.txt
+# b5: the guard talk (entry 23): four op3 holds -> arms the l06_a region
+callentry 23
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+dumpover b5_over.txt
+# b6: into the l06_a maze (entry 25 -> op29; op47 [1,5,9] at load)
+pause
+setseed 6002
+callentry 25
+unpause
+wait 18000
+dumpworldg b6_world.txt
+dumpjtm b6_layers.txt
+dumpover b6_over.txt
+# b7: the entry-cell leave-early chain (61767 + the op16 re-arm)
+callentry 5
+wait 3000
+tap fire
+wait 2000
+dumpover b7_over.txt
+# b8: floor 2 (entry 9: teleport + op47 [2,5,10] + the CAPTIVE at the
+# far corner + op27/op18 cell writes)
+pause
+setseed 6003
+callentry 9
+unpause
+wait 5000
+dumpworldg b8_world.txt
+dumpjtm b8_layers.txt
+dumpover b8_over.txt
+# b9: the rescue (entry 6): 61828/61829/61830 -> op29 /l06_6b.scr — the
+# script every earlier trace MISSED
+callentry 6
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 18000
+dumpworldg b9_world.txt
+dumpjtm b9_layers.txt
+dumpover b9_over.txt
+# b10: the rescued-NPC talk (entry 16): 61835/61848 -> the Silver
+# Shortsword reward (op37 tag 22) + hint
+callentry 16
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 2500
+dumpworldg b10_world.txt
+# to the Great Gate approach (entry 14 -> /l06_6_ba.scr); it OPENS at
+# the 61671 guard hold — dismiss it before dumping
+callentry 14
+wait 18000
+tap fire
+wait 2500
+# b11: l06_6_ba settled (guard slot 3 k=6 armed)
+dumpworldg b11_world.txt
+dumpjtm b11_layers.txt
+dumpover b11_over.txt
+# b12: the guard falls to the Mythic Dawn (the faithful killer) -> entry
+# 6: 61672 + the exit region (2,2)-(6,6) action=8
+pause
+setseed 6004
+sethp 3 1
+callhit 1 3
+unpause
+wait 3000
+tap fire
+wait 2500
+dumpworldg b12_world.txt
+dumpover b12_over.txt
+# b13: the exit (entry 8 -> op29 /l06_b.scr; op47 [3,4,6] at load —
+# seed BEFORE the fire)
+pause
+setseed 6005
+callentry 8
+unpause
+wait 18000
+dumpworldg b13_world.txt
+dumpjtm b13_layers.txt
+dumpover b13_over.txt
+# b14: the l06_b exit (entry 6): 61673/61674 -> op29 /l07_7_cr.scr —
+# the l07 handoff (the load runs PACED: Martin's walk window again)
+framepace 50 2
+callentry 6
+wait 3000
+tap fire
+wait 2000
+tap fire
+wait 18000
+dumpworldg b14_world.txt
+dumpjtm b14_layers.txt
+dumpover b14_over.txt
+framepace 0
+# ---- leg B: the two alternate branches ----
+# direct-to-ba: fresh l06_6, kill the spy, fire action=20 directly
+pause
+callscript /l06_6.scr
+unpause
+wait 18000
+pause
+setseed 6006
+sethp 6 1
+callhit 0 6
+unpause
+wait 3000
+tap fire
+wait 2500
+callentry 20
+wait 18000
+tap fire
+wait 2500
+dumpworldg b15_world.txt
+# leave-early: fresh l06_a maze, entry-cell chain -> /l06_6a.scr (the
+# no-rescue Bruma variant), then its entry 14 re-fires the ba link
+pause
+setseed 6007
+callscript /l06_a.scr
+unpause
+wait 15000
+callentry 5
+wait 3000
+tap fire
+wait 2000
+callentry 8
+wait 18000
+dumpworldg b16_world.txt
+dumpover b16_over.txt
+callentry 14
+wait 18000

@@ -1,0 +1,116 @@
+# Loop #19 fixtures: the Custom Controls redefine (m5, + the m20 "Key
+# Already Taken" bounce) and the overview stat tables (m18). ONE script,
+# both sides (game::script::drive runs it against the shell).
+#
+# Navigation (wiped rms/ -> page 0 = [New Game, Help, About, Exit]):
+# title key -> RIGHT to Help -> fire = page 6 [Basic Controls, Custom
+# Controls, Game Overview, Classes, Weapons, Armor, Spells, Items].
+# The drive NEVER fires "Save Changes" (that calls g() = a real RMS write
+# and would pollute the wiped baseline; the commit path is behavior-tested
+# on the Rust side instead) — BACK discards the s6 rebind (g:[B only).
+#
+# m5 exercise: browse -> cursor down/up -> FIRE arms capture ("Select new
+# value") -> num9 collides with Quick Magicka's default -> m20 -> OK back
+# -> capture again -> num1 binds (edit table only, no visible change: the
+# binding row paints at y=333, inside the clipped band) -> cursor to Save
+# Changes (spacer row above it) -> BACK.
+# m18 exercise: Classes rec0, a DOWN tap (expected DEAD: every record fits
+# the page, q:Z stays false -> s10 == s9 pins that), RIGHT rec1, LEFT LEFT
+# wraps to the last record; then Weapons (+rec1), Armor, Spells, Items.
+# Timings as to_boot.txt (title settles 16s+; menu taps 700ms).
+modelog smallmodes.txt
+wait 21000
+tap fire
+wait 4000
+tap right
+wait 700
+tap fire
+wait 1000
+tap right
+wait 700
+shot s0_page6_custom.png
+tap fire
+wait 1000
+shot s1_redefine.png
+tap down
+wait 700
+shot s2_redefine_qm.png
+tap up
+wait 700
+tap fire
+wait 700
+shot s3_capture.png
+tap num9
+wait 1000
+shot s4_key_taken.png
+tap 21
+wait 1000
+shot s5_back_to_redefine.png
+tap fire
+wait 700
+tap num1
+wait 1000
+shot s6_rebound.png
+tap down
+wait 500
+tap down
+wait 500
+tap down
+wait 700
+shot s7_save_changes_row.png
+tap 21
+wait 1000
+shot s8_page6_return.png
+tap right
+wait 700
+tap right
+wait 700
+tap fire
+wait 1500
+shot s9_classes.png
+tap down
+wait 700
+shot s10_classes_down.png
+tap right
+wait 700
+shot s11_classes_rec1.png
+tap left
+wait 500
+tap left
+wait 700
+shot s12_classes_wrap.png
+tap 21
+wait 1000
+tap right
+wait 700
+tap fire
+wait 1500
+shot s13_weapons.png
+tap right
+wait 700
+shot s14_weapons_rec1.png
+tap 21
+wait 1000
+tap right
+wait 700
+tap fire
+wait 1500
+shot s15_armor.png
+tap 21
+wait 1000
+tap right
+wait 700
+tap fire
+wait 1500
+shot s16_spells.png
+tap 21
+wait 1000
+tap right
+wait 700
+tap fire
+wait 1500
+shot s17_items.png
+tap 21
+wait 1000
+shot s18_page6_final.png
+modelogstop

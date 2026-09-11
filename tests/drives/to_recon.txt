@@ -1,0 +1,47 @@
+# Slice-1 recon: boot -> title -> main menu -> class select, with the mode
+# sampler running and -Doracle.textlog capturing every drawString.
+# Run with a WIPED rms/ dir (pinned-empty RecordStore baseline).
+# Cursor exploration (down/down/up/up) restores the selection before firing,
+# so the New Game path stays the default one to_gameplay.txt exercises.
+modelog modes.txt
+# boot splash (script-driven, ~19s wall clock) -> settle on title
+wait 21000
+shot 00_title.png
+wait 1200
+shot 00_title_blink.png
+tap fire
+wait 3000
+shot 01_mainmenu.png
+tap down
+wait 700
+shot 01_menu_down1.png
+tap down
+wait 700
+shot 01_menu_down2.png
+tap up
+wait 400
+tap up
+wait 400
+shot 01_menu_restored.png
+tap fire
+wait 3000
+shot 02_classselect.png
+tap down
+wait 700
+shot 02_class_down1.png
+tap down
+wait 700
+shot 02_class_down2.png
+tap up
+wait 400
+tap up
+wait 400
+shot 02_class_restored.png
+tap fire
+wait 1200
+shot 03_after_select.png
+wait 3000
+shot 04_intro_a.png
+wait 5000
+shot 04_intro_b.png
+modelogstop

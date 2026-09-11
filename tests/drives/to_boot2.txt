@@ -1,0 +1,16 @@
+# Second boot pass: earlier shots (each `shot` costs ~300ms wall clock, which
+# pushed to_boot.txt's b3 past the legal window). Windows from
+# artifacts/boot/bootmodes.txt: loader ends ~6.6s, logo2 ~8.8s, logo3 ~11.0s,
+# legal 13.2-15.5s, title after. Shots aim at window centers.
+modelog bootmodes2.txt
+wait 7600
+shot c0_logo1.png
+wait 1900
+shot c1_logo2.png
+wait 1900
+shot c2_logo3.png
+wait 2100
+shot c3_legal.png
+wait 500
+shot c4_legal2.png
+modelogstop

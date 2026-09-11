@@ -53,7 +53,8 @@ fn segments(script: &str) -> Vec<String> {
 
 #[test]
 fn l07_beats_match_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l07beats.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_l07beats.txt")).expect("drive");
     let segs = segments(&script);
     assert_eq!(segs.len(), 8, "7 assert markers -> 8 segments");
     let mut s = boot_shell();

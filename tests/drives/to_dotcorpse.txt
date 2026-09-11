@@ -1,0 +1,15 @@
+# Drive to in-level gameplay, THEN open the pause menu (key 21) so the game loop /
+# AI sub-loop is suspended and the shared combat RNG (b.var_java_util_Random_a) is
+# idle while dumpDoT seeds + invokes it. dumpDoT runs first (it touches no global
+# state); dumpCorpse then swaps a dead NPC into b.var_j_arr_a[1] and drives removal.
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumpdot dot_real.txt
+dumpcorpse corpse_real.txt

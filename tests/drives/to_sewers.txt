@@ -1,0 +1,60 @@
+# The MAZE EXIT chain parity drive (loop #23) — ONE script, both sides.
+#
+# The sewers (l01_1r.scr) have TWO exits, both fired through the ENTRY
+# cell's action-event edge (recon in docs/loop-decode-notes.md). The
+# choreography that re-arms the action byte is standard, already-ported
+# input handling (entry 4 "If I leave now..." dialogue -> op50 re-arm
+# action=9 -> the leave chain; the boss's death trigger var_byte_k=5 ->
+# entry 5 -> op50 re-arm action=10 -> the cleared chain). What is NEW is
+# the CHAIN ITSELF and the next room's load:
+#   entry 9  = op29 "/l01_1b.scr"  (leave the sewers early)
+#   entry 10 = op29 "/l01_1c.scr"  (sewers cleared)
+# Both reload /l01_1.jtm and re-run a "you return" opening cutscene that
+# HALTS at its first op3 dialogue (a settled VM-halt hold). dumpworldg masks
+# the carried/presentation state (player inv, hud, dialogue) — see Instrument;
+# what remains (layers, overlays, actors, respawn) is byte-deterministic.
+#
+# This gate exercises exactly that new surface: `callentry <n>` is the
+# REAL e.a(int) script-entry push — the exact mechanism the action edge
+# and the death trigger use — so pushing entry 9/10 runs the op29 chain
+# with zero input-timing fragility. Determinism: each leg re-seeds BEFORE
+# callscript (nothing draws between the load and op47), the room load
+# nulls/respawns every actor and player_reset()s the player, and the
+# opening runs to a VM-HALT at its first op3 dialogue. NOTE: the wait must
+# be long enough to clear the load's UNSCALED resource-IO jitter and reach
+# that halt — ~6s+ real is stable (probed across runs); 18s is comfortable.
+# A shorter wait lands mid-load and drifts (the initial loop-#23 gate did).
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+# ---- leg B: leave the sewers early -> /l01_1b.scr ----
+pause
+setseed 1
+callscript /l01_1r.scr
+unpause
+wait 1500
+pause
+callentry 9
+unpause
+wait 18000
+dumpworldg exit_b_world.txt
+dumpjtm exit_b_layers.txt
+dumpover exit_b_over.txt
+# ---- leg C: sewers cleared -> /l01_1c.scr ----
+pause
+setseed 7
+callscript /l01_1r.scr
+unpause
+wait 1500
+pause
+callentry 10
+unpause
+wait 18000
+dumpworldg exit_c_world.txt
+dumpjtm exit_c_layers.txt
+dumpover exit_c_over.txt

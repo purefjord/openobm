@@ -1,0 +1,19 @@
+# The to_l01.txt drive at TIMESCALE 10 (the M11 speed enabler): game time runs
+# 10x wall speed (the MIDlet's currentTimeMillis/Thread.sleep are ASM-redirected
+# to MIDletLoader's scaled clock). Script waits stay REAL ms, so each budget is
+# (game-wait / 10) PLUS the unscaled real costs: resource loading (IO/decode)
+# and the script VM's one-opcode-per-FRAME stepping (frame rate is gc-paced,
+# not clock-paced). Holds are settled, so generous margins are free.
+# Acceptance gate: the normalized shot + both dumps at the first-dialogue hold
+# must reproduce the COMMITTED 1x fixtures byte-for-byte.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+shotnorm f0_dialogue1.png
+dumpworld f_world.txt
+dumpjtm f_layers.txt

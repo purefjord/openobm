@@ -45,7 +45,7 @@ const TO_HOLD: &str = "wait 12000\ntap fire\nwait 1000\ntap fire\nwait 500\ntap 
 
 #[test]
 fn shop_drive_matches_the_oracle() {
-    let script = std::fs::read_to_string(root().join("oracle/to_shop.txt")).unwrap();
+    let script = std::fs::read_to_string(root().join("tests/drives/to_shop.txt")).unwrap();
     let mut shell = boot_shell();
     let artifacts = game::script::drive(&mut shell, &script).unwrap();
     let mut frames = 0;

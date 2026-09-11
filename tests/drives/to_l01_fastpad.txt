@@ -1,0 +1,17 @@
+# to_l01_fast with PADDED menu waits (2026-07-13): the original's 1000/500ms
+# real-time tap gaps have gone marginal on this machine (the loop-20 gotcha —
+# a tap landing inside an unscaled transition is EATEN; the boot now stalls
+# at class select consistently). The hold is settled/op21-gated, so extra
+# menu time changes NOTHING about the dumped state: this padded variant must
+# reproduce the same committed fixtures byte-for-byte.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+shotnorm f0_dialogue1.png
+dumpworld f_world.txt
+dumpjtm f_layers.txt

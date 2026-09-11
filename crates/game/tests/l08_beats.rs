@@ -57,7 +57,8 @@ fn hud_text(s: &Shell) -> Option<&str> {
 
 #[test]
 fn l08_beats_match_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l08beats.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_l08beats.txt")).expect("drive");
     let segs = segments(&script);
     assert_eq!(segs.len(), 13, "12 assert markers -> 13 segments");
     let mut s = boot_shell();

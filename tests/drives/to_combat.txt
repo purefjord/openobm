@@ -1,0 +1,17 @@
+# Drive to in-level gameplay (stat tables loaded), THEN open the pause menu
+# (key 21) so the game loop / AI sub-loop is suspended and the shared combat RNG
+# (b.var_java_util_Random_a) is idle while we seed+invoke it. Without this the
+# game thread races our setSeed and corrupts cases (see oracle/README.md).
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+shot combat_state.png
+dumptables tables_combat.txt
+dumpcombat combat_real.txt
+dumpdist dist_real.txt

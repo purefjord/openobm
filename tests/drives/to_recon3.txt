@@ -1,0 +1,35 @@
+# Slice-1 recon part 3: capture the full class-select carousel (8 classes).
+# Default path only; generous waits (recon2 showed the title->menu transition
+# takes ~900ms beyond the tap, eating early taps).
+modelog modes3.txt
+wait 21000
+tap fire
+wait 4500
+tap fire
+wait 4500
+shot c0.png
+tap right
+wait 800
+shot c1.png
+tap right
+wait 800
+shot c2.png
+tap right
+wait 800
+shot c3.png
+tap right
+wait 800
+shot c4.png
+tap right
+wait 800
+shot c5.png
+tap right
+wait 800
+shot c6.png
+tap right
+wait 800
+shot c7.png
+tap right
+wait 800
+shot c8.png
+modelogstop

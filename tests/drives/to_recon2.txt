@@ -1,0 +1,63 @@
+# Slice-1 recon part 2: cycle the main-menu and class-select carousels
+# (navigation is left/right; part 1's down taps were no-ops) to capture the
+# full item string sets + per-item shots. Ends on class select, no selection.
+modelog modes2.txt
+wait 21000
+tap fire
+wait 3000
+shot m0.png
+tap right
+wait 600
+shot m1.png
+tap right
+wait 600
+shot m2.png
+tap right
+wait 600
+shot m3.png
+tap right
+wait 600
+shot m4.png
+tap right
+wait 600
+shot m5.png
+# cycle back to the first item (assume wrap or symmetric left path)
+tap left
+wait 300
+tap left
+wait 300
+tap left
+wait 300
+tap left
+wait 300
+tap left
+wait 600
+shot m_back0.png
+tap fire
+wait 3000
+shot c0.png
+tap right
+wait 600
+shot c1.png
+tap right
+wait 600
+shot c2.png
+tap right
+wait 600
+shot c3.png
+tap right
+wait 600
+shot c4.png
+tap right
+wait 600
+shot c5.png
+tap right
+wait 600
+shot c6.png
+tap right
+wait 600
+shot c7.png
+tap right
+wait 600
+shot c8.png
+modelogstop

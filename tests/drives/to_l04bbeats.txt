@@ -1,0 +1,109 @@
+# l04_4b (the Kvatch REMATCH after the side maze) PER-BEAT drive
+# (loop #35) — ONE script, both sides. The rematch reloads /l04_1.jtm
+# with the player mid-map at (1508,2289) and NO op45 checkpoint (straight
+# mode-0 open) and NO k=6 plaza gate. Regions at load: (3,2)-(3,6)
+# enter=13/leave=7/action=14 (the bridge), (26,11)-(28,11) enter=9 (the
+# REMATCH reveal: spawns slots 6+7 "Mythic Dawn", boss = slot 7 k=12;
+# two op53 holds 61546/61547; the tail re-anchors respawn (1129,877) and
+# arms the PLAYER retry k=11 -> entry 11 re-arms the region enter=10 =
+# the tail only), (26,1)-(28,2) enter=16/leave=7/action=17 "Locked" —
+# the slot-7 boss death (entry 12) swaps action 17 -> 18 = op29
+# /l05_5.scr (the spine rejoin).
+#
+# Route in: the loop-34 leave-early leg (fastest — maze floor 1, entry-5
+# chain, action=12). Hazards carried from loop #33: slot 2 (row 10 at
+# (394,1056)) sits inside aggro range of the bridge walk — seeded-kill
+# it before the walk (the chase is frame-cadence combat); the death-beat
+# killer is slot 6 (humanoid — a creature never enters h.a(bl=true));
+# key 22 only at the mode-11 screen; l05_5's world is cadence-poisoned
+# (loop #31) so the exit hold gates layers+overlays only.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l04_4.scr
+unpause
+wait 12000
+callmode 0
+wait 3000
+pause
+setseed 5001
+callentry 10
+unpause
+wait 15000
+tap fire
+wait 2000
+tap fire
+wait 2000
+tap fire
+wait 2000
+callentry 5
+wait 3000
+tap fire
+wait 2000
+callentry 12
+wait 18000
+# b0: the rematch open (mode 0, no checkpoint; slots 1-5 patrols)
+dumpworldg b0_world.txt
+dumpjtm b0_layers.txt
+dumpover b0_over.txt
+# b1: the rematch reveal (entry 9): slots 6+7 spawn, camera hold, first
+# op53 hold (61546 by slot 6) — dump, then dismiss both + settle the
+# tail (wait 2500, attrs, op71 (1129,877), op32 player k=11)
+callentry 9
+wait 4000
+dumpworldg b1_world.txt
+tap fire
+wait 2000
+tap fire
+wait 6000
+dumpworldg b2_world.txt
+dumpover b2_over.txt
+# b3: die at the boss's side (killer = slot 6, two swings) -> entry 11
+# re-arms the region enter=10 during the death screen; YES resumes at
+# the new anchor
+pause
+setseed 5002
+sethp 0 1
+callhit 6 0
+sethp 0 1
+callhit 6 0
+unpause
+wait 4000
+dumpworldg b3_world.txt
+dumpover b3_over.txt
+tap 22
+wait 3000
+# b4: kill the k=12 boss (slot 7) -> entry 12 swaps the exit open
+pause
+setseed 5003
+sethp 7 1
+callhit 0 7
+unpause
+wait 4000
+dumpworldg b4_world.txt
+dumpover b4_over.txt
+# b5: clear the bridge-path patrol (slot 2 at (394,1056) — inside E
+# range of the walk; loop-33's cadence lesson)
+pause
+setseed 5004
+sethp 2 1
+callhit 0 2
+unpause
+wait 2000
+# b6: the bridge (entry 14): op52 double-walk + op22 collision writes +
+# op71 (1272,997)
+callentry 14
+wait 6000
+dumpworldg b6_world.txt
+dumpjtm b6_layers.txt
+# b7: the exit (entry 18: op29 /l05_5.scr) -> the l05 checkpoint hold
+callentry 18
+wait 18000
+dumpjtm b7_layers.txt
+dumpover b7_over.txt

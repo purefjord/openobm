@@ -1,0 +1,15 @@
+# Drive to in-level gameplay (stat tables loaded), open the pause menu, then dump
+# the stat tables + the XP/level-up sweep. h.c has no RNG, but the level-up calls
+# h.f, which needs b.var_e_a loaded. dumptables lets us confirm the tables match
+# the hf capture (so the Rust xp-sweep can reuse hf_tables.txt).
+wait 19000
+tap fire
+wait 4000
+tap fire
+wait 4000
+tap fire
+wait 40000
+tap 21
+wait 2500
+dumptables tables_xp.txt
+dumpxp xp_real.txt

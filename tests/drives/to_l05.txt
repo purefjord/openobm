@@ -1,0 +1,29 @@
+# l05 (Paradise / Mankar Camoran boss scene) staggered-dump diagnostic
+# (loop #31). OUTCOME: all three dumps are IDENTICAL per side and stable x2 —
+# the scene FREEZES at the op45 checkpoint (mode 3) with actors 14/16 still
+# mid-walk in the throne procession, forever. Their frozen positions are
+# frame-cadence-dependent (the op12->op45 walk window is frame-counted and
+# the real run() loop has no sleep — machine-paced frames): oracle 2069/2062
+# (~100 game-ms headless frames at 10x) vs the port's 2084/2081 (fixed 50ms).
+# Speed-proportional offsets (15/19 == 300/375) — walk TIME, not walk logic.
+# Gated via the 2-field cadence mask in tests/all_levels.rs; see
+# docs/loop-decode-notes.md loop #31.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+callscript /l05_5.scr
+unpause
+wait 13000
+dumpworldg l05_world_13s.txt
+wait 17000
+dumpjtm l05_layers.txt
+dumpover l05_over.txt
+dumpworldg l05_world_30s.txt
+wait 15000
+dumpworldg l05_world_45s.txt

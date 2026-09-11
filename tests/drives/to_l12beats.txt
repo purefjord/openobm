@@ -1,0 +1,112 @@
+# Loop F (M13, loop #42, FINAL): l12_12 + end_15 PER-BEAT + THE
+# SPINE-CARRY drive — ONE script, both sides (recon: loop-decode-notes
+# #42). This is the milestone capstone: it chains l11_11_cr -> l11_11
+# (boss kill, player -> level 2) -> l12_12 (the Great Gate) -> end_15
+# -> op77 (THE GAME END) in ONE drive, proving the final handoff with a
+# player that lived through the spine (the plan's cumulative-carry
+# requirement). op61 (mode 9, l12's exit) + op77 (mode 4, the game end)
+# are ported this loop (op61 was the last apply-gap; op77 was loop #29).
+# Region B (l12 e9/e10) is the Great Gate Daedra FREE COMBAT (an
+# E=30000 Xivilai, no op32) — non-deterministic like l02_2's fight (the
+# loop-28 precedent); exercised + evidenced in the REPL, NOT byte-gated,
+# so this drive fires the EXIT (region A) directly. Every gated dump is
+# deterministic: h0 (l12 checkpoint, Martin PACED — == loop-41's g3),
+# h1 (l12 open, the 9 kind-6 enemies all far outside E aggro), h2
+# (end_15 open, cadence-free). h3 = the op77 terminal (mode 4 — the
+# credits paint reads no world, so the player's mid-walk-at-op77 pos is
+# irrelevant; gated as mode()==4 + left_gameplay cleared + the oracle
+# modelog's 0->4 transition).
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# --- the spine: l11_11_cr -> l11_11 boss kill (== loop #41) ---
+pause
+callscript /l11_11_cr.scr
+unpause
+wait 18000
+tap fire
+wait 2500
+callentry 8
+wait 2000
+callentry 9
+wait 3000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+callentry 7
+wait 12000
+tap fire
+wait 2500
+pause
+setseed 11001
+sethp 1 1
+callhit 0 1
+unpause
+# the boss kill -> op29 /l12_12.scr, PACED (l12's op45 Martin
+# walk-window) + the free-run caps the swing-drained fatigue
+framepace 50 2
+wait 20000
+# h0: the l12_12 Great Gate checkpoint, reached via the REAL l11 boss
+# kill (the spine-carry: player carried to level 2)
+dumpworldg h0_world.txt
+dumpjtm h0_layers.txt
+dumpover h0_over.txt
+framepace 0
+# [assert-h0] mode 3; player o=2 (level 2 carried), hp 122/122; Martin
+# paced at 4297,3973
+# the l12 cutscene (4 holds 61715..61718 + Martin walk) -> mode 0
+callmode 0
+wait 4000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+# h1: the l12_12 mode-0 open (9 kind-6 enemies static + far, 2 regions,
+# 3 pickups); the player still level 2
+dumpworldg h1_world.txt
+dumpjtm h1_layers.txt
+dumpover h1_over.txt
+# [assert-h1] mode 0; player 4297,4439 o=2; enemies slots 2..10
+# THE EXIT: region A (enter=8) -> e8 = op61 (mode 9, transient) + op29
+# -> /end_15.scr (region B / e9-e10 is free combat, documented not
+# gated — fired in the REPL for evidence)
+callentry 8
+wait 18000
+# h2: the end_15 open at the first final-conversation hold (61981);
+# Champion 1026,1064 + Jauffre 1030,548; the level-2 player carried
+# through the WHOLE spine (op15 reuses var_j_a)
+dumpworldg h2_world.txt
+dumpjtm h2_layers.txt
+dumpover h2_over.txt
+# [assert-h2] mode 0; the 61981 hold open; player o=2 (the cumulative
+# carry: level 2 rode l11 -> l12 -> end_15)
+# the final conversation: 6 holds 61981..61986 -> op17 player walk ->
+# op77 = THE GAME END
+modelog h_modelog.txt
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 8000
+modelogstop
+# [assert-h3] op77 fired: mode 4 (the game-end credits) + the game-in-
+# progress flag cleared; the oracle modelog shows the 0 -> 4 transition

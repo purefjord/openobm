@@ -47,7 +47,8 @@ fn pos(s: &Shell, slot: usize) -> (i32, i32) {
 
 #[test]
 fn l11_beats_match_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l11beats.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_l11beats.txt")).expect("drive");
     let segs = segments(&script);
     assert_eq!(segs.len(), 5, "4 assert markers -> 5 segments");
     let mut s = boot_shell();

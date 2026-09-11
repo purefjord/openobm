@@ -1,0 +1,50 @@
+# Loop #21: the m9 OUTRO end-transition + the var_j_a stash (NG+ reuse).
+# At the settled L01 first-dialogue hold: calllang 12 (the ending overlay —
+# lang 547 lives there; the base table has no 547 record) + callmode 9 (the
+# REAL op61 arm: f:Z=0, h(lang547)). The outro page is pinned mid-text
+# (g=160; its ~18 wrapped lines keep the end condition false), then pushed
+# past the end (setscroll -2000) so the debounce fires the m9 reset: menu
+# state re-inited, ALL 25 actor slots nulled, var_j_a (the player OBJECT)
+# surviving — then mode 4. The credits are pinned at g=-50 (r1 must equal
+# the committed about_g-50.png on the LCD — same paint, same lang548), then
+# pushed past THEIR end -> mode 3 page 0 (f:Z was zeroed by the m9 entry).
+# r_menu_world pins the null-all (every slot empty). The NG+ tail: New Game
+# -> class fire -> the spawner REUSES the stashed player (h.void_a is a
+# PARTIAL re-init: the old inventory/level/XP survive; the L01 script then
+# re-adds its op37 consumables) -> the second hold's dump pins the leak.
+# Timings: menu waits padded (the loop-#20 gotcha); ends need ~2 paints +
+# the SCALED 3s freeze.
+timescale 10
+modelog outromodes.txt
+wait 6000
+tap fire
+wait 2500
+tap fire
+wait 1000
+tap fire
+wait 20000
+calllang 12
+callmode 9
+wait 300
+pause
+setscroll 160
+shotnorm r0_outro.png
+setscroll -2000
+unpause
+wait 1000
+pause
+setscroll -50
+shotnorm r1_credits.png
+setscroll -3000
+unpause
+wait 1000
+shot r2_menu.png
+dumpworld r_menu_world.txt
+tap fire
+wait 1000
+tap fire
+wait 20000
+shotnorm r3_hold2.png
+dumpworld r_world2.txt
+dumpjtm r_layers2.txt
+modelogstop

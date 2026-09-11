@@ -1,0 +1,163 @@
+# Loop C (M13, loop #39): l09_9_cr + l09_9 PER-BEAT drive — ONE script,
+# both sides (recon: docs/loop-decode-notes.md #39). The Miscarcand-
+# shape quest: the King's-ghost ESCORT (slot 17 kind 16 — same kind as
+# the ghosts, aggro-immune; op36-parked at (10,10) between legs), two
+# barrier dispels, the gate-opening finale that ARMS the slot-1 LICH
+# boss (k=10, E=450 — Call 9's 450 lands after Call 23's 500) and
+# op20-REMOVES the escort, then the ONE seeded kill of the milestone:
+# pause+setseed+sethp 1 1+callhit 0 1 (the player is the humanoid
+# attacker; the lich dies pre-cast — the risk-register summoner never
+# gets a ticking aggro window) -> its k=10 death fires e10 (hud 61811,
+# the 61935 hold, op29 /l10_10_cr.scr). The kill + hold dump run
+# FREE-RUN (corpse decay + player XP at matched game-time; the corpse
+# is long gone by the dump — the 250ms threshold), the pacer starts at
+# the dismissing tap (the load window; l10_10_cr is op12-THEN-op45 —
+# the Martin walk-window class, frozen at 1307). Entry route:
+# callscript /l08_8.scr -> callentry 16 = its REAL exit chain link.
+# l09_9 loads NO lang — dialogues resolve via l09_9_cr's op56 [9,9]
+# overlay, exactly as on the real chain.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# into l08_8 (the previous level), then its exit sub -> /l09_9_cr.scr
+pause
+callscript /l08_8.scr
+unpause
+wait 18000
+framepace 50 2
+callentry 16
+wait 18000
+# e0: the l09_9_cr checkpoint (op12-then-op45: Martin frozen at 1307)
+dumpworldg e0_world.txt
+dumpover e0_over.txt
+framepace 0
+# [assert-e0] mode 3; Martin 1307,936 walk 1305,936
+# the _cr cutscene (walk north, TWO holds, walk back) -> the l09_9 load
+# -> its OWN opening cutscene (two op21-gated player walks + THREE holds)
+callmode 0
+wait 5000
+tap fire
+wait 2500
+tap fire
+wait 18000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+# e1: the l09_9 open, opening cutscene done (respawn 4600,1876)
+dumpworldg e1_world.txt
+dumpjtm e1_layers.txt
+dumpover e1_over.txt
+# [assert-e1] mode 0; player 4569,1876; respawn 4600,1876; lich slot 1
+# the hint/leave/dialog one-offs
+callentry 12
+wait 2000
+# [assert-e2a] hud = lang 61812
+callentry 18
+wait 2000
+# [assert-e2b] hud cleared (e18's op40)
+callentry 16
+wait 3000
+# [assert-e2c] the 61736 hold is open
+tap fire
+wait 2500
+callentry 21
+wait 2000
+# [assert-e2d] hud = lang 61803 "Examine"
+callentry 22
+wait 3000
+# [assert-e2e] the 61742 hold is open; hud None (e22's op40 runs first)
+tap fire
+wait 2500
+dumpworldg e2_world.txt
+# e3: barrier 1 dispelled (e13): respawn (5632,4352), op70+op51, the
+# region re-arm 17/18/20, op18/op22 writes, slot 16 spawned
+callentry 13
+wait 4000
+dumpworldg e3_world.txt
+dumpjtm e3_layers.txt
+dumpover e3_over.txt
+# [assert-e3] respawn 5632,4352
+callentry 14
+wait 2000
+# [assert-e3b] hud = lang 61814
+# e4: ESCORT part 1 (e15): barrier 2 dispelled, the Spirit spawned
+# (slot 17, name 61853), 4 holds 61700/61701/61702/61703 with op21
+# walk-gates + op36 park/unpark cycles, Call 8 spawns slots 8..13,
+# the (26,21) region re-armed 17/18/19 + barrier (3456,2688)
+callentry 15
+wait 4000
+tap fire
+wait 6000
+tap fire
+wait 6000
+tap fire
+wait 6000
+tap fire
+wait 10000
+dumpworldg e4_world.txt
+dumpjtm e4_layers.txt
+dumpover e4_over.txt
+# [assert-e4] respawn 2321,4724; the Spirit parked at 10,10 u=1
+callentry 17
+wait 2000
+# [assert-e4b] hud = lang 61810
+# e5: ESCORT part 2 (e19): 3 holds 61737/61738/61739, region shuffles
+callentry 19
+wait 4000
+tap fire
+wait 6000
+tap fire
+wait 6000
+tap fire
+wait 10000
+dumpworldg e5_world.txt
+dumpjtm e5_layers.txt
+dumpover e5_over.txt
+# [assert-e5] the Spirit parked at 10,10 again
+# e6: THE FINALE (e20): 3 holds 61740/61741/61743, Call 23 opens the
+# gate (op18 =73 wall strips + op22 collision), op32 arms the boss
+# k=10, Call 9 spawns 14/15 + sets the boss E=450, op20 REMOVES the
+# escort
+callentry 20
+wait 4000
+tap fire
+wait 6000
+tap fire
+wait 6000
+tap fire
+wait 10000
+dumpworldg e6_world.txt
+dumpjtm e6_layers.txt
+dumpover e6_over.txt
+# [assert-e6] boss k=10 E=450; the Spirit slot 17 REMOVED; lock lifted
+# the kill (FREE-RUN): seeded lethal callhit -> k=10 -> e10's 61935 hold
+pause
+setseed 9001
+sethp 1 1
+callhit 0 1
+unpause
+# free-run to the 61935 exit hold; wait long enough that the player's
+# swing-drained fatigue fully regens back to its cap (both sides settle
+# at max, so the dump is deterministic despite the free-run window)
+wait 15000
+dumpworldg e6b_world.txt
+# [assert-e6b] the 61935 hold open; boss slot None (corpse decayed);
+# the player LEVELED by the kill XP (level 2, hp 122/122), fatigue capped
+# the exit: dismiss -> Call 11 -> op29 /l10_10_cr.scr PACED
+framepace 50 2
+tap fire
+wait 18000
+dumpworldg e7_world.txt
+dumpjtm e7_layers.txt
+dumpover e7_over.txt
+framepace 0
+# [assert-e7] mode 3 (the l10_10_cr checkpoint); Martin frozen at
+# 1307,936 walk 1305,936

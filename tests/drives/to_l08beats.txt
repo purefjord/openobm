@@ -1,0 +1,141 @@
+# Loop B (M13, loop #38): l08_8_cr + l08_8 PER-BEAT drive — ONE script,
+# both sides. Route (recon in docs/loop-decode-notes.md #38): boot ->
+# callscript /l07_7.scr (the previous level, opens mode 0) -> callentry
+# 10 = l07_7's REAL exit (op29 /l08_8_cr.scr) -> the checkpoint hold
+# (op45-BEFORE-op12: NO mode-0 frame — walkers freeze AT SPAWN, targets
+# armed; cadence-independent, pacing kept per the plan's blanket rule)
+# -> callmode 0 -> op12 -> the cutscene: the player walks (1026,1974) ->
+# (1026,1064) behind an op21 arrive-gate (~910 units, game-time-pure,
+# free-run), NINE op53 holds 61685..61693 (op46 facing + 1000ms wait
+# after hold 5), the walk back, the AUTOMATIC op29 -> /l08_8.scr ->
+# d1 the mode-0 open (10 kind-16 GHOSTS y=2 all IDLE at spawn — wander
+# never fires out of aggro range, E=700 < the 863-unit player distance;
+# the talk NPC slot 11 "Baynham" kind 19, op75 u=1, hp 24/94) -> the
+# talk beats (e17 hint 61808 / e18 the 61694 hold) -> the shared
+# barrier hint/leave (e8 61804 / e9 op40 — c2==c1-class no-side-effect
+# pins) -> THE BARRIER CHAIN e12 -> e11 -> e10 -> e13 (each: respawn
+# re-anchor, op70/op69 barrier swap, op51 clear, op18/op22 cell writes,
+# the next op50 region; all dumped world+layers+overlays) -> e14 the
+# artifact hint 61805 -> e15 the take (op39 61806 3s + op40 clears it
+# BEFORE the 61935 hold -> the d9a dumps AT the hold are the only
+# window where e15's l08 map effects are visible) -> dismiss -> op29
+# /l09_9_cr.scr PACED (its open is op12-THEN-op45 — the Martin walk
+# window, the b14/c0 class) -> d9 the l09_9_cr checkpoint (Martin
+# frozen at 1307). Zero op47/op32 in both scripts: no kills, no seeds
+# needed — the RNG is never touched.
+timescale 10
+wait 5000
+tap fire
+wait 3000
+tap fire
+wait 3000
+tap fire
+wait 20000
+# into l07_7 (the previous level) — its entry 1 opens straight to mode 0
+pause
+callscript /l07_7.scr
+unpause
+wait 18000
+# l07_7's REAL exit (entry 10 -> Call 11 + op29 /l08_8_cr.scr), paced
+framepace 50 2
+callentry 10
+wait 18000
+# d0: the l08_8_cr checkpoint hold (walkers AT SPAWN, targets armed)
+dumpworldg d0_world.txt
+dumpjtm d0_layers.txt
+dumpover d0_over.txt
+framepace 0
+# [assert-d0] mode 3; Martin spawn 1327,936 walk 1305,936; Jauffre
+# 1030,547 walk 1030,548; player at the south door 1026,1974
+# the cutscene: the walk-in behind the op21 gate, nine holds, walk-out
+callmode 0
+wait 5000
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 2500
+tap fire
+wait 18000
+# d1: the l08_8 mode-0 open
+dumpworldg d1_world.txt
+dumpjtm d1_layers.txt
+dumpover d1_over.txt
+# d2: the talk beats — e17's hint, then e18's 61694 hold with Baynham
+callentry 17
+wait 2000
+# [assert-d2a] hud text = lang 61808 "Talk"
+callentry 18
+wait 3000
+# [assert-d2b] the 61694 hold is open; speaker = slot 11's name
+tap fire
+wait 2500
+dumpworldg d2_world.txt
+# d3: the shared barrier-region hint (e8, 61804) + leave (e9, op40)
+callentry 8
+wait 2000
+# [assert-d3a] hud text = lang 61804 (the barrier enter-hint)
+callentry 9
+wait 2000
+# [assert-d3b] hud cleared by the shared leave event
+dumpworldg d3_world.txt
+# d4..d7: THE BARRIER CHAIN in its real firing order 12 -> 11 -> 10 -> 13
+callentry 12
+wait 5000
+dumpworldg d4_world.txt
+dumpjtm d4_layers.txt
+dumpover d4_over.txt
+# [assert-d4] respawn re-anchored 3072,1024
+callentry 11
+wait 5000
+dumpworldg d5_world.txt
+dumpjtm d5_layers.txt
+dumpover d5_over.txt
+# [assert-d5] respawn re-anchored 1152,1408
+callentry 10
+wait 5000
+dumpworldg d6_world.txt
+dumpjtm d6_layers.txt
+dumpover d6_over.txt
+# [assert-d6] respawn re-anchored 1024,3328
+callentry 13
+wait 6000
+dumpworldg d7_world.txt
+dumpjtm d7_layers.txt
+dumpover d7_over.txt
+# [assert-d7] respawn re-anchored 4352,1280; the artifact region armed
+# d8: the artifact enter-hint (e14)
+callentry 14
+wait 2000
+dumpworldg d8_world.txt
+# [assert-d8] hud text = lang 61805 "Take Artifact"
+# d9: the take (e15) — dump AT the 61935 hold (the l08 end-state), then
+# dismiss -> Call 16 -> op29 /l09_9_cr.scr PACED (op12-then-op45: the
+# Martin walk window)
+framepace 50 2
+callentry 15
+wait 3000
+dumpworldg d9a_world.txt
+dumpjtm d9a_layers.txt
+dumpover d9a_over.txt
+# [assert-d9a] the 61935 hold is open; hud None (e15's op40 cleared the
+# transient 61806 hint before the hold)
+tap fire
+wait 18000
+dumpworldg d9_world.txt
+dumpjtm d9_layers.txt
+dumpover d9_over.txt
+framepace 0
+# [assert-d9] mode 3 (the l09_9_cr checkpoint); Martin frozen mid-walk
+# at 1307,936 walk 1305,936 (the op12-then-op45 one-frame window)

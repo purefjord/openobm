@@ -1,0 +1,44 @@
+# The mode-2 ACTION MENU (M11 loop #17) at timescale 10: drive to the L01
+# second-dialogue hold, inject the op76 HUD flag (sethud — the a:B=22 key is
+# gated on it; the cutscene holds keep it off), open the menu with key 22
+# (n() + mode 2 — the world freezes under f.a:B == 1), and walk the tabs.
+# The menu reads only the (state-validated) player, its background covers the
+# whole screen, and nothing advances the f model's anim cursors — so plain
+# shots are byte-comparable, no normalization needed. The Items fire uses a
+# Remove Poison (h.b: the [4]>0 cure branch consumes it; the open menu graph
+# is a snapshot, so the row still shows, now checkmarked — faithful).
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+tap fire
+wait 1000
+sethud 1
+tap 22
+wait 200
+shot m0_attack.png
+tap right
+wait 200
+shot m1_armor.png
+tap down
+wait 200
+tap fire
+wait 200
+shot m2_body.png
+tap 21
+wait 200
+tap right
+wait 200
+shot m3_items.png
+tap right
+wait 200
+shot m4_stats.png
+tap left
+wait 200
+tap fire
+wait 200
+shot m5_items_used.png

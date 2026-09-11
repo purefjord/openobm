@@ -1,0 +1,52 @@
+# The op47 SEWER MAZE parity drive (loop #22) — ONE script, both sides.
+#
+# Boot to the L01 first-dialogue hold (the proven to_l01_fast prefix), then
+# jump straight to the maze script with the RNG re-based FIRST: the loader
+# (callscript = the real b.a(String)) nulls every actor but the player, and
+# nothing on the path from the load to op47 draws the RNG (VM ops 73/67/67/
+# 58/58/19/23 are draw-free; an idle locked player tick is draw-free), so
+# generation #1 is a pure function of the seed on BOTH sides — including the
+# pickup layout and therefore the FIRE outcome at the entry cell.
+#
+# The maze script itself (l01_1r.scr entry 1) then: op47 generates, op15
+# respawns the player at (300,300) = the entry tile (2,2), op71 sets the
+# respawn anchor, op74/op12/op19 reopen the gate -> mode 0 -> input unlocked.
+# FIRE at the entry fires the c-overlay action event 4 -> entry 4 -> the
+# op3 dialogue (its open dialogue is what makes dumpworld comparable — the
+# oracle side prints the stale line vector otherwise).
+#
+# Then, PAUSED (zero frames between seed and generation), two callmaze
+# regens pin the generator as a pure function of two more seeds: layers
+# (dumpjtm), event overlays (dumpover), and the spawned enemies + pickup
+# triples + the player class/stats/pos (dumpworldg; the regen's m() re-inits
+# the player in place, so any pre-pause combat nicks are reset). The player's
+# CARRIED inventory is masked (dumpworldg): whether the maze op15 reuses the
+# fight-chaos player's consumables is non-deterministic (the oracle drifts
+# run-to-run) and is NOT part of what the generator produces.
+timescale 10
+wait 5000
+tap fire
+wait 1000
+tap fire
+wait 500
+tap fire
+wait 20000
+pause
+setseed 1
+callscript /l01_1r.scr
+unpause
+wait 1500
+tap fire
+wait 1000
+pause
+setseed 42
+callmaze 1 4 6
+dumpjtm maze_layers_a.txt
+dumpover maze_over_a.txt
+dumpworldg maze_world_a.txt
+setseed 3735928559
+callmaze 1 4 6
+dumpjtm maze_layers_b.txt
+dumpover maze_over_b.txt
+dumpworldg maze_world_b.txt
+unpause

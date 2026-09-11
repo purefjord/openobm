@@ -43,7 +43,8 @@ fn fixture(name: &str) -> String {
 /// pure function of the RNG stream.
 #[test]
 fn maze_generation_matches_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_maze.txt")).expect("drive script");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_maze.txt")).expect("drive script");
     let mut s = boot_shell();
     let artifacts = game::script::drive(&mut s, &script).expect("drive");
     for name in [

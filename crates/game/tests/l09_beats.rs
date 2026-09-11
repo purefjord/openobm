@@ -53,7 +53,8 @@ fn walk(s: &Shell, slot: usize) -> (i32, i32) {
 }
 #[test]
 fn l09_beats_match_the_real_game() {
-    let script = std::fs::read_to_string(root().join("oracle/to_l09beats.txt")).expect("drive");
+    let script =
+        std::fs::read_to_string(root().join("tests/drives/to_l09beats.txt")).expect("drive");
     let segs = segments(&script);
     assert_eq!(segs.len(), 16, "15 assert markers -> 16 segments");
     let mut s = boot_shell();
