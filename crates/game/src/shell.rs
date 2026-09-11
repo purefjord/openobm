@@ -235,7 +235,7 @@ pub struct Shell {
 impl Shell {
     /// The ctor path: field defaults (`<clinit>` + `j()`), then the loader on
     /// the initial script — the real boot, no seeding. `assets_dir` is the
-    /// extracted-jar resource root; `masks` the oracle text fixture.
+    /// extracted-jar resource root; `masks` provides fonts for play or comparisons.
     pub fn boot(assets_dir: impl Into<PathBuf>, masks: TextMasks) -> anyhow::Result<Self> {
         let assets_dir = assets_dir.into();
         // a:Lf; = new f(ctorArg3, this) — the menu model loads at boot.

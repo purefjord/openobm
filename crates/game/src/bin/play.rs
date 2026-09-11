@@ -94,8 +94,7 @@ async fn main() {
     // = jump into that level after a fast boot (custom maps, e.g.
     // /lush.scr); "wide"/"wide10" = the non-canonical widescreen viewer.
     let args = parse_args();
-    let masks = TextMasks::load(&args.root.join("tests/fixtures/oracle/text_masks.txt"))
-        .expect("text masks fixture");
+    let masks = TextMasks::bundled();
     let mut shell = Shell::boot(args.root.join("assets"), masks).expect("shell boot");
 
     // RecordStore persistence (frontend-owned; the shell stays pure): the

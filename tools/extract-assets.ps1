@@ -30,4 +30,4 @@ Remove-Item -LiteralPath $staging -Recurse -Force
 
 Write-Host "Extracted $kept resource files to $Dest/"
 Write-Host "Parser checks: cargo test -p eso-tools --features assets --locked"
-Write-Host "Playing also requires unpublished text masks; see the README setup limitation."
+Write-Host "Play: cargo run -p game --features interactive --bin play --release --locked"

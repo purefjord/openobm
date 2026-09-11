@@ -19,6 +19,12 @@ interactive = ["dep:macroquad"]
 # and is not distributed. Without that directory the suites cannot run, so
 # they are opt-in: `cargo test -p game --features fixtures`.
 fixtures = []
+# Smoke tests using only a user-supplied resource pack and the bundled fonts.
+assets = []
+
+[[test]]
+name = "public_play"
+required-features = ["assets"]
 
 [[bin]]
 name = "play"
@@ -142,6 +148,7 @@ formats.workspace = true
 render.workspace = true
 anyhow.workspace = true
 png = "0.17"
+fontdue = "0.9.3"
 macroquad = { version = "0.4", optional = true }
 
 [dev-dependencies]

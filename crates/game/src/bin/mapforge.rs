@@ -798,8 +798,7 @@ fn main() -> Result<()> {
 
     // Boot the real shell and render the whole map through the validated
     // paint (same pre-roll the levelmap atlases use).
-    let masks = TextMasks::load(&root().join("tests/fixtures/oracle/text_masks.txt"))
-        .expect("text masks fixture");
+    let masks = TextMasks::bundled();
     let mut shell = Shell::boot(&assets, masks)?;
     game::script::drive(
         &mut shell,

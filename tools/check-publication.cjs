@@ -3,6 +3,7 @@
 // This targeted check is not a comprehensive secret scanner.
 const fs = require('node:fs');
 const cp = require('node:child_process');
+const crypto = require('node:crypto');
 
 function git(args, input) {
   const result = cp.spawnSync('git', args, {
@@ -21,6 +22,12 @@ const rules = [
 ];
 const privatePath = /(?:^|\/)(?:\.claude|\.codex|\.agents|assets|artifacts|playdata|fixtures|workspace|outputs)(?:\/|$)|(?:^|\/)(?:CLAUDE\.md|AGENTS\.md|GOAL\.md|SESSION-NOTES\.md|spec\.txt|dialogue\.txt)$|\.(?:jar|jad|class|7z|zip|pem|key|p12|pfx|log|db|sqlite)$|\.javap\./i;
 const screenshots = new Set(['screenshots/gameplay.png', 'screenshots/kvatch-full-level.png']);
+// Unmodified, redistributable upstream fonts; see the adjacent license/provenance.
+// A path alone must never exempt a replacement binary from review.
+const fonts = new Map([
+  ['crates/game/fonts/LiberationSans-Regular.ttf', '76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8'],
+  ['crates/game/fonts/LiberationSans-Bold.ttf', '788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173'],
+]);
 let failures = 0;
 
 function fail(location, category) {
@@ -31,6 +38,15 @@ function checkText(bytes, location) {
   const text = bytes.toString('utf8');
   for (const [category, pattern] of rules) {
     if (pattern.test(text)) fail(location, category);
+  }
+}
+function checkBinary(bytes, location) {
+  if (fonts.has(location)) {
+    if (crypto.createHash('sha256').update(bytes).digest('hex') !== fonts.get(location)) {
+      fail(location, 'font differs from the reviewed upstream release');
+    }
+  } else if (bytes.subarray(0, 8192).includes(0) && !screenshots.has(location)) {
+    fail(location, 'unreviewed binary file');
   }
 }
 function checkIdentity(identity, location) {
@@ -83,14 +99,14 @@ try {
           const name = names.get(oid) || oid.slice(0, 12);
           checkPath(name);
           checkText(data, name);
-          if (data.subarray(0, 8192).includes(0) && !screenshots.has(name)) fail(name, 'unreviewed binary file');
+          checkBinary(data, name);
         }
       }
     }
     for (const [oid, name] of blobs) {
       const data = git(['cat-file', 'blob', oid]);
       checkText(data, name);
-      if (data.subarray(0, 8192).includes(0) && !screenshots.has(name)) fail(name, 'unreviewed binary file');
+      checkBinary(data, name);
     }
     if (args[0] === '--staged') {
       checkIdentity(git(['var', 'GIT_AUTHOR_IDENT']).toString(), 'author');

@@ -17,4 +17,4 @@ unzip -joq "$jar" -d "$dest" -x '*.class' '*.jar' '*.jad' 'META-INF/*'
 
 echo "Extracted $(find "$dest" -type f | wc -l | tr -d ' ') resource files to $dest/"
 echo "Parser checks: cargo test -p eso-tools --features assets --locked"
-echo "Playing also requires unpublished text masks; see the README setup limitation."
+echo "Play: cargo run -p game --features interactive --bin play --release --locked"

@@ -6,10 +6,9 @@ Travels: Oblivion* (2006, Java ME).
 The inspected MIDlet credits Superscape in its vendor and build-system manifest
 fields. Its in-game copyright notice names Vir2L Studios and Bethesda Softworks.
 
-> **Development preview:** the public source builds, but playing currently also
-> requires an unpublished text-mask file. Extracting your own game archive is
-> not sufficient to run `play`, `levelmap`, or `mapforge`. A reproducible public
-> font setup is still needed.
+> **Development preview:** you can play using your own game archive and the
+> bundled open fonts. No private text-mask file or emulator setup is required.
+> A complete human playthrough is still pending; bugs and softlocks may remain.
 
 <p align="center">
   <img src="screenshots/gameplay.png" alt="The Imperial City Prison running in OpenOBM at 240x320" width="240">
@@ -65,21 +64,32 @@ Keep extracted resources, saves, and generated images local. `.gitignore`
 excludes the usual data directories, but does not prevent files being copied
 elsewhere or forcibly added.
 
-### Playing from an existing development setup
+### Play
 
-The playable frontend additionally reads
-`tests/fixtures/oracle/text_masks.txt`. It contains captured font metrics and
-rendered text masks; neither that file nor its original capture tool is included
-here. The extraction scripts do not generate it.
-
-If you already have a compatible local development setup:
+After extracting your archive, run this from the repository root:
 
 ```sh
-cargo run -p game --features interactive --bin play --release
-cargo test --workspace --features game/fixtures,eso-tools/fixtures --locked
+cargo run -p game --features interactive --bin play --release --locked
 ```
 
 See [controls](docs/controls.md). Saves are stored locally in `playdata/eso.bin`.
+
+Liberation Sans Regular and Bold are embedded in the program under the SIL Open
+Font License. All three tools (`play`, `levelmap`, and `mapforge`) use these fonts
+without downloads, system font installation, Java, or reference captures. Text
+appearance and line wrapping can differ from the development screenshots.
+See [font provenance and rendering](crates/game/fonts/README.md).
+
+To check menus, dialogue, gameplay, and level loading with your extracted data
+without opening a window:
+
+```sh
+cargo test -p game --features assets --test public_play --locked
+```
+
+Private pixel-comparison suites still load their explicit reference masks and
+require the unpublished captures. Enable those separately with `game/fixtures`
+and `eso-tools/fixtures`; they are not part of the player setup.
 
 ## Validation during development
 
@@ -118,8 +128,7 @@ audio output. These observations apply to the inspected build.
 ## Experimental tools
 
 `mapforge` generates custom maps, and `play wide` / `play wide10` provide wider
-viewports. These experiments are outside the original viewport comparisons and
-share the unpublished font dependency described above.
+viewports. These experiments are outside the original viewport comparisons.
 
 <details>
 <summary>Level rendering example: Kvatch Oblivion Gate</summary>

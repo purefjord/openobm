@@ -68,8 +68,7 @@ fn main() -> Result<()> {
     let seed: u64 = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(12345);
     std::fs::create_dir_all(&out_dir)?;
 
-    let masks = TextMasks::load(&root().join("tests/fixtures/oracle/text_masks.txt"))
-        .expect("text masks fixture");
+    let masks = TextMasks::bundled();
     let mut shell = Shell::boot(root().join("assets"), masks)?;
     // The proven cold-boot prelude (logo -> title -> menu -> class fire).
     game::script::drive(

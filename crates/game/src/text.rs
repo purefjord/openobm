@@ -1,25 +1,13 @@
-//! Whole-string text stamping from oracle-captured ink masks.
+//! Text rendering for public play and optional reference comparisons.
 //!
-//! The game draws ALL text via `Graphics.drawString` with MIDP system fonts,
-//! rasterized on the oracle by java.awt (SansSerif, antialiasing OFF —
-//! verified two-color text regions). Those pixels can't be re-derived in Rust,
-//! so `oracle/TextCapture.java` captures every string the slice draws as a
-//! binary ink mask through the exact drawString code path (same anchor-0 +
-//! `ascent-1` baseline math), keyed by **(font, verbatim string)**. Stamping a
-//! mask in the draw color at the game-requested (x, y) reproduces the
-//! oracle's text byte-for-byte over any background.
+//! [`TextMasks::bundled`] rasterizes the embedded Liberation Sans fonts with
+//! fontdue. It needs no installed fonts, Java, game text corpus, or capture file.
+//! Layout uses integer character advances without kerning, as the MIDP shell
+//! expects. Glyph appearance and wrapping can differ from the reference emulator.
 //!
-//! Recon facts baked in here (see `docs/loop-recon.md` + artifacts/recon4):
-//! - the slice uses four fonts: system/bold/large (carousel items, headers),
-//!   system/bold/small ("Press any key", "BACK"), system/plain/small (legal
-//!   scroll), system/plain/medium ("Loading...");
-//! - the game's centering formula is `x = 120 - stringWidth/2` (Java int div);
-//! - FreeJ2ME gotcha recorded for posterity: `PlatformGraphics.font` shadows
-//!   the superclass field and goes stale — the destination `gc` font decides
-//!   the pixels (that's what the capture uses).
-//!
-//! A string missing from the fixture is a hard error by design: it means the
-//! corpus needs extending (rerun the capture), never that we should guess.
+//! [`TextMasks::load`] retains the strict, captured whole-string/character path
+//! for private pixel-comparison tests. Those masks are never loaded implicitly
+//! by the playable tools, so local fixtures cannot change public rendering.
 
 use crate::fb::Fb;
 use std::collections::HashMap;
@@ -58,7 +46,7 @@ pub struct Mask {
     pub dy: i32,
     pub mw: usize,
     pub mh: usize,
-    bits: Vec<bool>, // mw*mh, row-major
+    ink: Vec<u8>, // mw*mh, row-major coverage (0 = transparent, 255 = solid)
 }
 
 pub struct FontMetrics {
@@ -71,14 +59,69 @@ pub struct FontMetrics {
 pub struct TextMasks {
     fonts: HashMap<GameFont, FontMetrics>,
     masks: HashMap<(GameFont, String), Mask>,
-    /// Per-char advance widths (`Font.charWidth`) captured per font. The
-    /// capture VERIFIES `substringWidth(s,i,n)` equals the char-width sum for
-    /// every substring of the corpus, so summing these reproduces the exact
-    /// measurement the game's word-wrap (`b.a(String,Vector,int)`) performs.
+    /// Integer character advances shared by drawing, centering, and wrapping.
     char_widths: HashMap<GameFont, HashMap<char, i32>>,
+    /// Public fonts replace unsupported characters; reference captures stay strict.
+    fallback: Option<char>,
 }
 
 impl TextMasks {
+    /// The public font setup, embedded at compile time and independent of the
+    /// filesystem. The unmodified font files and their OFL license are in `fonts/`.
+    pub fn bundled() -> Self {
+        let regular = fontdue::Font::from_bytes(
+            &include_bytes!("../fonts/LiberationSans-Regular.ttf")[..],
+            fontdue::FontSettings::default(),
+        )
+        .expect("valid bundled regular font");
+        let bold = fontdue::Font::from_bytes(
+            &include_bytes!("../fonts/LiberationSans-Bold.ttf")[..],
+            fontdue::FontSettings::default(),
+        )
+        .expect("valid bundled bold font");
+        let mut result = Self {
+            fonts: HashMap::new(),
+            masks: HashMap::new(),
+            char_widths: HashMap::new(),
+            fallback: Some('?'),
+        };
+        for (font, face, size) in [
+            (GameFont::LargeBold, &bold, 14),
+            (GameFont::SmallBold, &bold, 10),
+            (GameFont::SmallPlain, &regular, 10),
+            (GameFont::MediumPlain, &regular, 12),
+        ] {
+            // Preserve the shell's nominal line heights and anchor-0 baseline.
+            // These are layout constants, not a claim of reference pixel parity.
+            result.fonts.insert(
+                font,
+                FontMetrics {
+                    midp_height: size,
+                    ascent: size + 1,
+                },
+            );
+            let mut widths = HashMap::new();
+            for &c in face.chars().keys() {
+                let (m, ink) = face.rasterize(c, size as f32);
+                let width = m.advance_width.round() as i32;
+                widths.insert(c, width);
+                result.masks.insert(
+                    (font, c.to_string()),
+                    Mask {
+                        string_width: width,
+                        dx: m.xmin,
+                        dy: size - m.ymin - m.height as i32,
+                        mw: m.width,
+                        mh: m.height,
+                        ink,
+                    },
+                );
+            }
+            result.char_widths.insert(font, widths);
+        }
+        result
+    }
+
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         Self::parse(&std::fs::read_to_string(path)?)
     }
@@ -166,13 +209,13 @@ impl TextMasks {
             };
             let (string_width, dx, dy) = (kv("w=")?, kv("dx=")?, kv("dy=")?);
             let (mw, mh) = (kv("mw=")? as usize, kv("mh=")? as usize);
-            let mut bits = Vec::with_capacity(mw * mh);
+            let mut ink = Vec::with_capacity(mw * mh);
             for _ in 0..mh {
                 let row = lines
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("truncated mask for {s:?}"))?;
                 anyhow::ensure!(row.len() == mw, "bad row width for {s:?}");
-                bits.extend(row.chars().map(|c| c == '1'));
+                ink.extend(row.chars().map(|c| if c == '1' { 255 } else { 0 }));
             }
             masks.insert(
                 (font, s),
@@ -182,7 +225,7 @@ impl TextMasks {
                     dy,
                     mw,
                     mh,
-                    bits,
+                    ink,
                 },
             );
         }
@@ -191,6 +234,7 @@ impl TextMasks {
             fonts,
             masks,
             char_widths,
+            fallback: None,
         })
     }
 
@@ -219,17 +263,22 @@ impl TextMasks {
         }
     }
 
-    /// Non-panicking [`Self::substring_width`] — `None` when a char has no
-    /// captured advance yet (corpus tooling; the game paths use the panicking
-    /// form so a coverage gap stays loud).
+    /// Non-panicking [`Self::substring_width`]. Missing characters use `?` in
+    /// bundled mode, or return `None` in strict reference mode.
     pub fn try_substring_width(&self, font: GameFont, s: &str) -> Option<i32> {
         let table = self.char_widths.get(&font)?;
-        s.chars().map(|c| table.get(&c).copied()).sum()
+        s.chars()
+            .map(|c| {
+                table
+                    .get(&c)
+                    .or_else(|| self.fallback.and_then(|fallback| table.get(&fallback)))
+                    .copied()
+            })
+            .sum()
     }
 
-    /// `Font.substringWidth`-equivalent measurement for the word-wrap: the sum
-    /// of captured per-char advances (verified additive by the capture). A
-    /// char missing from the fixture is a hard error, same policy as masks.
+    /// Sum the integer character advances used by the stamper. Reference mode
+    /// rejects missing characters; bundled mode uses the replacement advance.
     pub fn substring_width(&self, font: GameFont, s: &str) -> i32 {
         let table = self
             .char_widths
@@ -237,23 +286,16 @@ impl TextMasks {
             .unwrap_or_else(|| panic!("no charw table for {font:?} (rerun oracle/TextCapture)"));
         s.chars()
             .map(|c| {
-                *table.get(&c).unwrap_or_else(|| {
+                *table.get(&c).or_else(|| self.fallback.and_then(|fallback| table.get(&fallback))).unwrap_or_else(|| {
                     panic!("char not in width fixture (extend the corpus + rerun oracle/TextCapture): {font:?} {c:?}")
                 })
             })
             .sum()
     }
 
-    /// Draw `s` exactly as `Graphics.drawString(s, x, y, 0)` does on the
-    /// oracle with `font` set: ink pixels become `rgb`, the rest untouched.
-    ///
-    /// A string with no whole-string mask COMPOSES from the single-char
-    /// masks at the captured advances — pixel-identical to a whole-string
-    /// draw because the capture verifies both width additivity (over every
-    /// corpus substring) and position independence (AA off, no kerning).
-    /// This covers dynamic text the corpus cannot enumerate (damage
-    /// numbers, live HUD labels); every GATED string still stamps its
-    /// captured whole-string mask. A char with no mask stays a loud panic.
+    /// Draw at the MIDP anchor-0 position, using a whole-string capture when
+    /// present, otherwise composing glyphs at integer advances. Bundled fonts
+    /// blend antialiased coverage; binary reference masks keep their exact ink.
     pub fn stamp(&self, fb: &mut Fb, font: GameFont, s: &str, x: i32, y: i32, rgb: u32) {
         if let Some(m) = self.try_get(font, s) {
             Self::blit(fb, m, x, y, rgb);
@@ -262,7 +304,13 @@ impl TextMasks {
         let mut ax = x;
         for c in s.chars() {
             if c != ' ' {
-                let m = self.get(font, c.encode_utf8(&mut [0u8; 4]));
+                let key = c.to_string();
+                let m = self
+                    .try_get(font, &key)
+                    .unwrap_or_else(|| match self.fallback {
+                        Some(fallback) => self.get(font, fallback.encode_utf8(&mut [0u8; 4])),
+                        None => self.get(font, &key),
+                    });
                 Self::blit(fb, m, ax, y, rgb);
             }
             ax += self.substring_width(font, c.encode_utf8(&mut [0u8; 4]));
@@ -272,9 +320,18 @@ impl TextMasks {
     fn blit(fb: &mut Fb, m: &Mask, x: i32, y: i32, rgb: u32) {
         for row in 0..m.mh {
             for col in 0..m.mw {
-                if m.bits[row * m.mw + col] {
-                    fb.set(x + m.dx + col as i32, y + m.dy + row as i32, rgb);
+                let coverage = u32::from(m.ink[row * m.mw + col]);
+                let (xx, yy) = (x + m.dx + col as i32, y + m.dy + row as i32);
+                if coverage == 0 || xx < 0 || yy < 0 || xx >= fb.w || yy >= fb.h {
+                    continue;
                 }
+                let bg = fb.get(xx, yy);
+                let channel = |shift: u32| -> u32 {
+                    let fg = (rgb >> shift) & 255;
+                    let bg = (bg >> shift) & 255;
+                    (fg * coverage + bg * (255 - coverage) + 127) / 255
+                };
+                fb.set(xx, yy, (channel(16) << 16) | (channel(8) << 8) | channel(0));
             }
         }
     }
