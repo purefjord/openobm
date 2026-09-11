@@ -19,6 +19,7 @@ extraction rather than a playable port.
 
 ## What "byte-validated" means here
 
+
 Correctness is anchored to the **original binary's computation** — captured into
 byte-comparable fixtures and frozen into automated tests, never to hand
 judgement. Two independent faithful ports (this Rust one and a JVM transcription)
@@ -29,7 +30,24 @@ LCD frames are diffed pixel-exact.
 This repository delivers milestones **M0 → M13** — the whole game, end to end.
 Current state, and what is left, live in `HANDOFF.md`.
 
+## What is proved
+
+
+Every shipped format parses byte-exact against the original, and the interactive
+loop is diffed frame-by-frame against the real game running on FreeJ2ME:
+
+| Surface | Scope | Result |
+|---|---|---|
+| Data formats | `.jtm` maps, `lang` tables, `.cml` models, `.scr` scripts (loader, all 79 opcodes, stat tables), `ESO` saves | byte-identical |
+| Game logic | 15 sweeps against real bytecode — progression, melee, XP, targeting, collision, movement, animation, effects, per-actor tick, AI, spellcasting | byte-identical |
+| The shell | 70 pixel-parity frames — boot, menus, gameplay, shop, save/load, death, credits | byte-identical |
+| Every level | l01 through l12 + the ending, per-beat validated; 10 sequential loads in one session | byte-identical |
+
+**→ [`docs/validation.md`](docs/validation.md)** for the full table, every row.
+**→ [`docs/milestones.md`](docs/milestones.md)** for how it was built, M0 to M13.
+
 ## Workspace layout
+
 
 ```
 crates/
@@ -56,6 +74,7 @@ artifacts/       rendered screenshots
 ```
 
 ## Supplying the game data
+
 
 OpenOBM is an engine. It contains no assets, no string tables, no sprites and no
 disassembly — `.gitignore` blocks all of them, and nothing of the sort exists
@@ -96,261 +115,8 @@ To get to a working tree you need:
 Without these the crates still build and the pure-logic tests still pass; the
 fixture-gated suites fail for want of their inputs.
 
-## Legal
-
-Unofficial and non-commercial. Not affiliated with, endorsed by, or approved by
-ZeniMax Media, Bethesda Softworks, or Vir2L Studios. Engine and documentation are
-dual-licensed **MIT OR Apache-2.0**; `oracle/patches/` is **GPLv3**. Trademarks,
-the no-game-data guarantee, and the full licensing picture: **`NOTICE.md`**.
-
-## The oracle (how correctness is established)
-
-The reference project (RECON 2010 Syndicate Wars port) kept the original binary
-continuously runnable as an in-process oracle. JVM bytecode and Rust can't
-co-execute, so we rebuild that baseline **out of process**: `oracle/OracleDump.java`
-is a *verbatim transcription* of the original game's loader algorithms
-(`b.java` for `.jtm`/lang, `e.java` for `.scr`), run on the JVM, emitting the
-exact same canonical text format as the Rust `eso-dump`. Validation is then a
-mechanical `diff`. Two independent faithful ports (Rust + Java) agreeing
-byte-for-byte across all real assets is the cross-check.
-
-Current oracle agreement (`cargo test -p eso-tools --test oracle_match`):
-
-| Artifact | Scope | Result |
-|---|---|---|
-| `.jtm` grids | all 17 maps, all layers | byte-identical |
-| `lang_*.txt` | all 13 tables, 546 entries | byte-identical |
-| `.scr` loader + stat tables | all 32 scripts (entries, code, sections w/ full row values + aux lists) | byte-identical |
-| `.scr` opcode trace | `startup.scr` entry 1, full | byte-identical |
-| `.cml` models | all 21 (records, flags, boxes, anim groups/frames) | byte-identical |
-| `h.f` progression | 5957 synthetic actors (8 classes × 20 levels × 37 races, ± inventory) vs **real `h.f` bytecode** | byte-identical |
-| melee combat | 730 attacker/target+seed cases (damage/crit/dodge/block/armor/weapon-tiers + RNG draws) vs **real `h.a` bytecode** | byte-identical |
-| XP / level-up | 560 class×level×race cases + the 52-entry XP tables vs **real `h.c`/`h.g` bytecode** | byte-identical |
-| combat distance | 229 position-pair cases vs **real `h.a(int[],int[])` bytecode** | byte-identical |
-| targeting | 48 querier cases over a synthetic actor array vs **real `h.j_a` bytecode** | byte-identical |
-| map collision | 19 cases (bounds, solid, 4 slope tiles, OR) vs **real `h.boolean_a` bytecode** | byte-identical |
-| movement step | 22-step position trace (timer/speed, delta, iso/tile, facing, wall-revert) vs **real `h.void_a` bytecode** | byte-identical |
-| animation playback | 2336-line op-trace (advance/seek/reset over synthetic + real `oh_pc`/`oh_magic` graphs) vs **real `g.class` bytecode** | byte-identical |
-| effect pool | 7-scenario × per-frame pool trace (timers, frame-step, projectile move/convert, homing, lifetime) vs **real `i.a(long)` bytecode** | byte-identical |
-| per-actor tick (subset) | 9-scenario × per-frame field trace (timers, anim gate, attack-windup, regen, move-to-target, P/G buff-expiry, floating text, status/corpse timers) vs **real `h.a(j,long,boolean)` bytecode** | byte-identical |
-| per-actor DoT (`var_short_k`) | 3-scenario × per-frame victim HP/timers + 99-short effect pool + end RNG probe (timer laps, `i.a(8,j2)` spawn, defense-bypass damage, `var_byte_t` draw fork) vs **real `h.a` bytecode** | byte-identical |
-| corpse removal | dead-NPC corpse-timer accumulation + slot-null at the 250ms threshold (`b.a(var_byte_c-1)`) vs **real `h.a` bytecode** | byte-identical |
-| NPC attack AI | 9-scenario × per-frame trace (target acquisition, E/F approach/lock/drop + `var_byte_y==2` hold, iso-quadrant facing, cooldown saw-tooth, the melee at `h.a:457` w/ RNG probes, target HP/E/text) vs **real `h.a` bytecode** | byte-identical |
-| spell/cast path | 11-scenario × per-frame trace (creature swing, L/N/H buffs across level tiers, AoE poison/damage, cure, self-heal, bolt, `y==3` weapon-drop, `y==2` vanish/teleport-wander on a synthetic map; caster+target fields + effect pool + RNG probes) vs **real `h.a` bytecode** | byte-identical |
-
-> For the data formats the algorithm is fully self-contained, so the JVM
-> transcription *is* equivalent ground truth. For runtime-coupled behavior
-> (M7+), a second oracle runs the **actual `Oblivion.jar` on FreeJ2ME, headless**
-> — verified booting through the `startup.scr` splash to the title screen from
-> the original bytecode (see `oracle/README.md` and `artifacts/real_20s.png`).
-> This is the foundation for byte-diffing runtime behavior (opcode execution
-> traces, save blobs) and for screenshot parity.
-
-## Screenshot parity (the `b.java` loop — M11)
-
-Separate from the byte-identical *data* table above: the interactive loop is
-wall-clock + input-driven, so its ground truth is **LCD frames**. One input
-script (the `oracle/OracleRun` grammar: `wait`/`tap`/`shot`) drives both the
-real jar on FreeJ2ME and the Rust `crates/game` shell; the shell's rendered
-frame is compared to the real LCD snapshot at each `shot`. All text is captured
-from FreeJ2ME's own `drawString` path as whole-string ink masks
-(antialiasing is off — text is a binary mask), so a match is pixel-exact.
-
-`cargo test -p game`:
-
-| Checkpoint | Scope | Result |
-|---|---|---|
-| whole-string text | every on-path label stamped at the recon `(x,y,font,color)` vs the real title/menu/class-select frames | byte-identical |
-| boot logos (`m=8`) | `/1..3.png` over the op10 backgrounds, stepped by the REAL `startup.scr` through the ported script VM | byte-identical |
-| title (`m=8`) | cream bg + `/5.png` logo centered on (120,172) + "Press any key" (blink-ON phase, op60 key-gate) | byte-identical |
-| main menu (`m=3 k=0`) | `/main.png` + red `<< >>` + centered "New Game" (empty-RMS baseline; items from lang_0 via `l()`) | byte-identical |
-| class select (`m=3 k=1`) | `/main.png` + green header + carousel class name + clipped "BACK", cursors 0/1/2 (Monk/Nightblade/Barbarian — the real CLASS-TABLE order) | byte-identical |
-| driven flow | one input script from COLD BOOT (loader → logos → legal → title → key → script chain → menu → class select) through the ported loader + VM + `b(J)` mode machine, each `shot` diffed | byte-identical |
-| legal word-wrap | `h(String)` + the small-bold width math vs the 7 lines the real game drew (oracle textlog) | exact |
-| exit dialog (`m=19`) | fire Exit → confirm (incl. the original's lang-451 mis-centering quirk) → NO back to the menu with the cursor held on Exit → re-open; YES → `c()` mode-12 terminal + destroyed (behavior pinned by the oracle modelog) | byte-identical |
-| Help submenu (`m=3 k=6`) | fire Help → the topic carousel (page 6, cursor saved/restored via `x:B`), items from lang 457..462, BACK chains at every level with cursors held | byte-identical |
-| help text pages (`m=17`/`m=23`) | Basic Controls + Game Overview: title box tail (dark-red `lang(l:S)`), small-bold wrapped body, held-UP overscroll settling at the paint clamp (g=20), DOWN dead via the never-cleared `p:Z` end-latch (original quirk) | byte-identical |
-| About (`m=4`) | entry (`h(lang 548)`, scroll init `b:S - 4*smallH` — a bytecode CORRECTION of the recon's medium-font claim) + BACK out; plus the roll at a FIXED-SCROLL normalized shot (`g:S = -50` injected on both sides via the new `setscroll`): body + the gold `1~` credits markup, byte-identical | behavior-tested + byte-identical |
-| the intro page (`m=10`, fixed scroll) | the parchment body at `g:S = 180` (every line on the visible LCD) — first pixel gate of the non-inverted text page, which CAUGHT a fill-color transposition typo: the parchment is 0xE9E1C3 (constant #513), not the recon's 0xE9E9C3 | byte-identical |
-| the player-death screen (`m=11`) | passive play through the L01 ambush (FIRE only dismisses dialogues) until `b.void_a(0)` runs the death sequence (player re-init + respawn-anchor teleport, slot kept) -> "Continue?"; the paint reads no world state, so the shot is deterministic despite the RNG-phased fight; YES resumes gameplay (11 -> 0 pinned by the modelog), NO -> `p()` + menu | byte-identical + behavior |
-| the ACTION MENU (`m=2`, the f.java menu system) | ONE `to_menu.txt` drive (timescale 10, the `sethud` inject) opens the menu at the second-dialogue hold and walks it: the Attack tab (checkmarked bold active weapon, spells, the desc box), the Armor tab + the Body slot descend, the Items tab, Character Stats (two-column rows; the first row faithfully starts above the visible band -> up arrow), and the Items-page potion use (the actor consumes it; the snapshot menu re-shows the row checkmarked) — six shots + activation behavior (spell cross-marking via `var_c_a`/`var_c_b`) | byte-identical (all six, first run) |
-| the LIVE `ESO` save blob (M9, finally) | `oracle/to_save.txt` drove the real jar to the L01 hold and invoked `b.g()` (the `callsave` native) — the savelog RecordStore hook captured the raw record; the port's `parse_save`/`serialize_save` round-trips it, AND the shell's own `b.g()` (`save_and_get_blob`) reproduces it byte-for-byte from live state (recomputed item `active` bits) | byte-identical (both directions) |
-| the save/load confirm screens (`m=13/14/16`) | "Game Saved" + "Press any key" (via the `setmode` inject); "Saved Game Exists"/"Overwrite?" and "Load Saved Game?" (from a save-present boot, RMS restored after) — all reached in the shell via the pause menu once a save exists (`boolean_b()` lifts "Load Game" into `l()`) | byte-identical |
-| the L01 level load (`m=6→15→10→0`) | class fire → the REAL loader/VM runs the whole `/l01_1.scr` choreography (map, ~20 spawns, class init + equips, overlays, camera, respawn) into the mode-0 loop; the real-runtime modelog pins the same chain | mode chain + state |
-| L01 world state at the first-dialogue hold | the live actor array (stats/equipment/positions/flags), world scalars, and the wrapped dialogue lines vs `Instrument.dumpWorld` of the real game at the same op21-gated hold | byte-identical |
-| L01 map layers at the first-dialogue hold | collision + all visual layers incl. every op18/22/49 script write vs the live `dumpjtm` | byte-identical |
-| the mode-0 GAMEPLAY frame (normalized) | `paint` case 0 — base-map cache + top-layer/actor interleave (shadows, poses, speech bubble), camera `r()`/`q()`, the dialogue box with the dark-red speaker prefix — vs the real LCD after the shared anim/effect/camera normalization (`shotnorm` == `normalize_for_shot`) | byte-identical |
-| the please-wait screen (`m=15`, normalized) | black fill + large-bold literal "Please Wait..." + the oh_pc group-5 anim | byte-identical |
-| the SECOND dialogue hold (normalized) | dismiss -> the cutscene's next op53 hold; settledness pinned by two oracle shots 1s apart (a1 == a2) + a second byte-identical `dumpworld` state gate | byte-identical |
-| floating combat text (injected anchor) | both sides install the same floats at the paused hold (slot 3 "12" = the plain red path, slot 2 lang-471 "- Dodge - " = the green string-compared path) and shoot with no tick between — validates the `h.a` draw's `Q==0` rise/color init + medium-font stamp | byte-identical |
-| pickup marker + enemy health bars (injected anchor) | both sides teleport the player (the real op36 native) beside the op49 marker at tile (21,30), re-follow the camera (the real op26 native), tick ~800ms so the run()-loop proximity scan fires the lang-363 hint (asserted as state — its band paints at y=323.., inside the clipped 320..345 region), then shoot: pins the -45 marker tile, the enemy health bars, scamp sprites, and the post-teleport camera | byte-identical |
-
-Static, input-settled screens only. Animated screens (the boot splash, the
-ZeniMax legal scroll, the "Please Wait" load anim) are **visual-review only**
-this milestone — never behind the byte-identical gate. Masks (e.g. for the
-500ms title blink) are not used: the two blink phases are separate captured
-frames and the deterministic schedule lands on a known one. Fixtures under
-`tests/fixtures/oracle/frames/` are regenerated only from **our** oracle.
-
-## Audio: none — the original is silent
-
-Verified against the real bytecode (2026-07-23): no class in the jar
-references `javax.microedition.media` (or any vendor audio API), the jar
-ships zero audio assets, and the menu build never surfaces the vestigial
-"Sound:" toggle (its fire branch is dead code, ported faithfully and pinned
-by `tests/sound_toggle.rs`). A 1:1 port of a silent game is silent — audio
-is out of scope by *fidelity*, not omission. See `docs/road-to-1.0.md`.
-
-## Verified corrections to the original porting brief
-
-Checked against the decompiled source / bytecode (the spec said to trust but verify):
-
-1. **Lang lookup: base wins over overlay.** `b.java::java_lang_String_a` checks
-   the base table (`lang_0`) first and only falls back to the secondary table for
-   ids missing from the base. `spec.txt` claimed overlay wins; the bytecode says
-   the opposite. (`lang.rs`)
-2. **Lang text is Latin-1, not UTF-8.** The Java widens each byte with `(char)n`
-   (ISO-8859-1). Decoding as UTF-8 (as the spec sketch did) would corrupt the
-   German/French translation files. (`lang.rs`)
-3. **`.jtm` confirmed:** tile index is `x*height+y` (not row-major), y-outer /
-   x-inner; RLE `0xFF count value`; a `count==0` run still writes one cell. (`jtm.rs`)
-4. **Iso transform round-trip:** `world->screen` is lossy; `screen->world->screen`
-   is the exact identity (the invariant the renderer relies on). (`iso.rs`)
-
-## Milestones delivered
-
-- **M0** — workspace + quality gates (clippy `-D warnings`, rustfmt, dev
-  `overflow-checks`, `insta`, `proptest`, miri); `Reader`, `AssetStore`, iso
-  transforms with exact-shift and round-trip tests.
-- **M1** — `lang_*.txt` + every `.jtm` parsed; golden `insta` snapshots over all
-  real assets; `proptest` fuzz; **oracle byte-match**.
-- **M2** — debug isometric renderer behind a `Renderer` trait, with a headless
-  CPU/PNG backend (verifiable in CI, see `artifacts/`) and a macroquad
-  interactive window (`--features interactive`: arrow/WASD pan, tile-under-cursor).
-- **M3** — `.scr` loader + a 79-opcode VM **skeleton**: every opcode's operands
-  are decoded exactly as the original (PC advances identically), with call/return/
-  wait control flow modeled. The `startup.scr` opcode trace matches the oracle
-  opcode-for-opcode; `scr-coverage` disassembles entry 1 of all 32 scripts and
-  reaches 54/79 opcodes with **zero unknown-opcode hits**. Opcode *side effects*
-  (rendering, actor mutation, resource loading) are deferred to later milestones.
-- **M4** — `.cml` model/animation parser (`g.java`/`d.java`): path prefix, frame
-  records, bit-flag blocks, bounding boxes, animation groups/frames. All 21 files
-  consume exactly to EOF and **match the oracle byte-for-byte**. A decompiler trap
-  in the path read was resolved against `g.class` bytecode (`javap -c`). Sprite
-  *rendering* (decoding the referenced PNGs + frame placement) is deferred to the
-  renderer milestone.
-- **M7** — `.scr` VM execution: the VM now resolves inline strings and emits
-  semantic effects (load level/model, free graphics, show text, wait,
-  call/return) — `startup.scr` executes as: load `/startup.cml`, four 2000ms
-  waits, free the splash graphics, queue `/startup2.scr`, return. Validated
-  against the **real runtime**: a FreeJ2ME resource-load hook (`MIDletLoader` +
-  `-Doracle.reslog`) showed the live boot loads exactly `/startup.cml →
-  /1,2,3,5.png`, which **caught and corrected** a semantic error the
-  transcription-only oracle could not — op 72 is *free cached graphics*, not
-  *load*. (Full opcode side effects into actor/world state remain future work;
-  per-entry execution is deterministic, so decode order is run order.)
-- **M8 (in progress)** — actors/stats: `actor.rs` ports `j.java`'s actor fields
-  (defaults from the source initializers) and the deterministic health/fatigue
-  derivation `h.java` recomputes everywhere (`max_health = level*4 + (str+O)*2 +
-  endurance*2 + I`, `rate = 40000/max`, likewise fatigue). Unit-tested from the
-  exact source formulas. Combat resolution, inventory item-application, and
-  `h.f`'s class/level bonus tables (coupled to the `.scr` stat tables) are the
-  remaining M8 slices. **Inventory stat application** (`h.b(j,int[])`) is now
-  ported too: equipping gear sets the J/K/L/M/N/O/P bonus fields and recomputes
-  health/fatigue; consumables restore/queue health & fatigue (clamped) — direct
-  effects unit-tested. **`h.f` (class/level/race progression)** is now ported
-  (`Actor::class_progression`): the race-row lookup, the equipped-item `var_short_z`
-  sum, and the per-class skill table (`prog_a/b/c/d`) by level breakpoint, all
-  transcribed verbatim from the decompiled switch (redundant double-writes kept).
-  It is validated against the **real `h.f` bytecode**, not a transcription: a new
-  oracle (`Instrument.dumpHf`) constructs synthetic `j` actors under FreeJ2ME and
-  invokes the genuine private `h.f`, sweeping the whole class/level/race space; the
-  Rust port reproduces all 5957 outputs byte-for-byte (`hf_matches_oracle`).
-  **Melee combat damage** is now ported too (`combat.rs::melee_attack` =
-  `h.a(j,j,bool)` + `h.a(int,j,j,bool,bool)`): the damage formula, weapon-tier
-  override + non-player halving, crit, armor/dodge/block resolution, and the exact
-  `java.util.Random` draw sequence (faithful `JavaRandom` LCG). Validated against
-  the **real `h.a` bytecode** with a deterministically seeded RNG (`dumpCombat`,
-  dumped while paused so the game loop can't race the shared RNG; each case carries
-  one extra `nextInt()` "probe" so a wrong draw count fails the diff) — 730 cases
-  match byte-for-byte (`combat_matches_oracle`). **XP / level-up** is ported too
-  (`Actor::award_xp` = `h.c(j,int)` + `h.g`): award `var_short_arr_b[n]` XP, and on
-  crossing `var_short_arr_a[level+1]` level up — +1 to all seven attributes, the
-  class level bonus (`h.g`), a health/fatigue recompute, and the progression pass
-  (`h.f`). The 52-entry XP tables are hardcoded and dumped alongside the sweep, so
-  the diff validates them against the real `h.var_short_arr_a/b` statics. 560 cases
-  + the tables match the **real `h.c` bytecode** (`xp_matches_oracle`). The combat
-  **distance** (`combat_distance` = `h.a(int[],int[])`, the octagonal range metric
-  behind targeting/AI/AoE) is ported and validated against the real method
-  (`dist_matches_oracle`), and the **non-player E-update** (`target.E = max(distance
-  to aggressor, E)` on a hit) now completes melee resolution for NPC targets too
-  (combat sweep Phase C). Remaining M8 (deferred — they reach the unported `i.java`
-  projectile/effects + map/actor-array state, not pure math): the **spell/cast**
-  path, the combat **death** branch (animation/sound), and the `h.f` secondary pass.
-  **Targeting** (`nearest_target` = `h.j_a`, nearest valid enemy: skips empty/dead/
-  same-faction/same-kind, closest by distance, earliest index on ties) is ported and
-  validated by installing a synthetic actor array into the live `b.var_j_arr_a` and
-  diffing the chosen slot against the real method (`targeting_matches_oracle`).
-  **Map collision** (`world::collides` = `h.boolean_a`) — the first movement
-  primitive (M10): an actor's three sampled cells against the collision layer, with
-  bounds, solid (`1`), and the four directional **slope** tiles (`2..=5`, resolved
-  against the corner's sub-tile position). Validated by swapping a synthetic
-  collision layer + dims into `b` and diffing 19 crafted cases against the real
-  method (`collision_matches_oracle`). The **movement step** (`world::move_in_world`
-  = `h.void_a`, "moveInWorld") is ported on top: the step timer + time-scaled speed,
-  the world delta with derived iso (`var_int_arr_i`) and tile coords + facing, and
-  the collision **revert** (`h.void_c` → `h.a`, rebuilding the box corners via the
-  inverse iso transform `b.b`). Validated by **position-trace parity** — driving the
-  real `h.void_a` through a scripted (direction, dt) sequence on a synthetic map
-  (including walking into a wall) and diffing the per-step state
-  (`move_matches_oracle`).
-- **M9** — `ESO` save format: faithful port of `b.g()`/`b.b()` + the actor blob
-  `h.a(j,…)` — `[3 flag bytes][bool_o][player?]` then `[name]` + a 31-byte actor
-  header (byte/short/int fields, big-endian, with `byte`s written as
-  sign-extended 2-byte pairs) + model name + item records. `parse_save` /
-  `serialize_save` **round-trip byte-for-byte** (a game-written blob's own
-  save→load is exactly this), proptest-fuzzed. A FreeJ2ME `RecordStore` hook
-  (`-Doracle.savelog`) + `eso-dump save-roundtrip <blob>` are wired to validate a
-  captured live blob; capturing one requires reaching the in-game save menu
-  (the hook is ready). The item `active` bit (recomputed from combat state on
-  write) is preserved as raw bytes — recomputing it is M8.
-- **M5** — `.scr` data tables materialized: the section sub-parsers now capture
-  full row values (actor/item/spell/etc. stats) with each subtype's exact
-  signedness, inline-string-pool indexing, and the two global lists (subtype 7's
-  flat list, subtype 9's slot list). All 32 scripts' tables **match the oracle
-  byte-for-byte**. (Executing opcode side effects remains future work.)
-- **M6** — sprite rendering: decode the indexed/`tRNS` PNGs to RGBA and draw
-  `.cml` animation frames (source rect + offset + horizontal flip, per
-  `g.java::a(Graphics, d, ...)`). The player's 24-group walk/attack/cast cycle
-  renders as clean character poses, and the player composites over an iso map
-  (`artifacts/pc_sheet.png`, `artifacts/pc_map.png`). Pixel-parity against the
-  real game's in-game frames is gated on the oracle's input-injection enabler.
-
-## Beyond the port
-
-Two things here are **not** part of the faithful port. They are built on top of
-the validated engine, they are gated by nothing, and they have no tests. Demos,
-not guarantees:
-
-- **`mapforge`** — a custom-map generator. It writes a `.jtm` map and a `.scr`
-  script from scratch and boots them in the engine. Everything else in this
-  repository proves the original's formats can be *read* byte-exactly; mapforge
-  is the proof they can be *written* too, which is what makes a level editor
-  plausible (`docs/editor-feasibility.html`). It touches no shipped file and no
-  fixture — custom content only.
-
-  ```sh
-  cargo run -p game --bin mapforge --release -- world    # a walking-sim level
-  cargo run -p game --bin mapforge --release -- palette  # a tile contact sheet
-  ```
-
-- **widescreen** (`play wide` / `wide10`) — a viewport wider than the original's
-  240x320. Good for looking around; deliberately outside the parity gates,
-  because the original's framing is part of what gets validated.
-
-The port itself stays pure: neither is compiled into the validation path.
-
 ## Build & test
+
 
 ```sh
 cargo test --workspace          # unit + golden + fuzz + oracle-match
@@ -380,7 +146,51 @@ cargo run -p render --features interactive --bin map-view -- ./assets l01_1.jtm
 > (dev/test) plus the proptest fuzzers, which exercise every parser and the VM on
 > thousands of random inputs without panicking.
 
+## Beyond the port
+
+
+Two things here are **not** part of the faithful port. They are built on top of
+the validated engine, they are gated by nothing, and they have no tests. Demos,
+not guarantees:
+
+- **`mapforge`** — a custom-map generator. It writes a `.jtm` map and a `.scr`
+  script from scratch and boots them in the engine. Everything else in this
+  repository proves the original's formats can be *read* byte-exactly; mapforge
+  is the proof they can be *written* too, which is what makes a level editor
+  plausible (`docs/editor-feasibility.html`). It touches no shipped file and no
+  fixture — custom content only.
+
+  ```sh
+  cargo run -p game --bin mapforge --release -- world    # a walking-sim level
+  cargo run -p game --bin mapforge --release -- palette  # a tile contact sheet
+  ```
+
+- **widescreen** (`play wide` / `wide10`) — a viewport wider than the original's
+  240x320. Good for looking around; deliberately outside the parity gates,
+  because the original's framing is part of what gets validated.
+
+The port itself stays pure: neither is compiled into the validation path.
+
+## Audio: none — the original is silent
+
+
+Verified against the real bytecode (2026-07-23): no class in the jar
+references `javax.microedition.media` (or any vendor audio API), the jar
+ships zero audio assets, and the menu build never surfaces the vestigial
+"Sound:" toggle (its fire branch is dead code, ported faithfully and pinned
+by `tests/sound_toggle.rs`). A 1:1 port of a silent game is silent — audio
+is out of scope by *fidelity*, not omission. See `docs/road-to-1.0.md`.
+
+## Legal
+
+
+Unofficial and non-commercial. Not affiliated with, endorsed by, or approved by
+ZeniMax Media, Bethesda Softworks, or Vir2L Studios. Engine and documentation are
+dual-licensed **MIT OR Apache-2.0**; `oracle/patches/` is **GPLv3**. Trademarks,
+the no-game-data guarantee, and the full licensing picture: **`NOTICE.md`**.
+
 ## How this was built
+
 
 OpenOBM was written with [Claude Code](https://claude.com/claude-code) — Fable 5,
 Opus 5, and Opus 4.8 — over 11 weeks and 106 commits, June to September 2026.
