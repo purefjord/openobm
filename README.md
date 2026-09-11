@@ -14,14 +14,13 @@ extraction rather than a playable port.
 <p align="center">
   <img src="screenshots/gameplay.png" alt="The Imperial City Prison, running in OpenOBM at the original 240x320" width="240">
   <br>
-  <em>The Imperial City Prison — OpenOBM, at the original 240&times;320.</em>
+  <em>The Imperial City Prison — OpenOBM, at 240&times;320.</em>
 </p>
 
 <p align="center">
-  <img src="screenshots/kvatch-full-level.png" alt="The whole of Kvatch rendered in one image by the levelmap tool" width="640">
+  <img src="screenshots/kvatch-full-level.png" alt="Kvatch Oblivion Gate rendered in one image by the levelmap tool" width="640">
   <br>
-  <em>Kvatch, burning — the <strong>entire</strong> level in one image. The original
-  only ever drew a 240&times;320 window onto this; <code>levelmap</code> loads the
+  <em>The <strong>entire</strong> level in one image.<code>levelmap</code> loads the
   level through its real scripts and draws the whole thing.</em>
 </p>
 
