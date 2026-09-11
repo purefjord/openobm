@@ -14,11 +14,128 @@ workspace = true
 [features]
 default = []
 interactive = ["dep:macroquad"]
+# Every integration test in this crate drives the shell against captured
+# ground truth in `tests/fixtures/`, which is derived from the original game
+# and is not distributed. Without that directory the suites cannot run, so
+# they are opt-in: `cargo test -p game --features fixtures`.
+fixtures = []
 
 [[bin]]
 name = "play"
 path = "src/bin/play.rs"
 required-features = ["interactive"]
+
+[[test]]
+name = "all_levels"
+required-features = ["fixtures"]
+
+[[test]]
+name = "driven_parity"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l02_2_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l02_2_level"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l02_cutscene"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l02_open"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l03_3_level"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l04_4_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l04_4b_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l04_4r_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l06_chain_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l07_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l08_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l09_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l10_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l11_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "l12_beats"
+required-features = ["fixtures"]
+
+[[test]]
+name = "level_load"
+required-features = ["fixtures"]
+
+[[test]]
+name = "maze"
+required-features = ["fixtures"]
+
+[[test]]
+name = "outro"
+required-features = ["fixtures"]
+
+[[test]]
+name = "parity"
+required-features = ["fixtures"]
+
+[[test]]
+name = "save_hardening"
+required-features = ["fixtures"]
+
+[[test]]
+name = "save_persistence"
+required-features = ["fixtures"]
+
+[[test]]
+name = "sewers_exit"
+required-features = ["fixtures"]
+
+[[test]]
+name = "shop"
+required-features = ["fixtures"]
+
+[[test]]
+name = "small_menus"
+required-features = ["fixtures"]
+
+[[test]]
+name = "sound_toggle"
+required-features = ["fixtures"]
+
+[[test]]
+name = "text_oracle"
+required-features = ["fixtures"]
 
 [dependencies]
 formats.workspace = true

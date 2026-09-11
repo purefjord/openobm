@@ -9,9 +9,25 @@ description = "Dumpers that emit byte-comparable ground-truth for diffing agains
 [lints]
 workspace = true
 
+# `assets` = you have extracted your own copy of the game into ./assets.
+# `fixtures` = you also have tests/fixtures/, the captured ground truth, which
+# is derived from the original game and is not distributed.
+[features]
+default = []
+assets = []
+fixtures = ["assets"]
+
 [[bin]]
 name = "eso-dump"
 path = "src/main.rs"
+
+[[test]]
+name = "golden"
+required-features = ["assets"]
+
+[[test]]
+name = "oracle_match"
+required-features = ["fixtures"]
 
 [dependencies]
 formats.workspace = true
