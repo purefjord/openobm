@@ -7,7 +7,7 @@
 //! test in driven_parity.rs proves the same frames emerge from executing the
 //! real startup scripts). On mismatch a diff PNG is written to target/parity/
 //! (gitignored) for inspection; the fixtures themselves are regenerated only
-//! from OUR oracle (never copied from the parallel codex project).
+//! from OUR oracle (never copied from the parallel port's notes).
 
 use game::asset::Assets;
 use game::fb::Fb;
