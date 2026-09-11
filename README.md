@@ -1,13 +1,33 @@
-# Travels Oblivion — compatibility-first Rust port
+# OpenOBM
 
-A compatibility-first Rust rewrite of *The Elder Scrolls Travels: Oblivion*
-(Superscape, Java ME / MIDP-1.0). Correctness is anchored to the **original
-binary's computation**, captured into byte-comparable fixtures and frozen into
-automated tests — never to hand judgement. (`../GOAL.md` and `../spec.txt` are
-the *original* brief, milestones M0–M3 only, and are stale.)
+**An open reimplementation of *The Elder Scrolls Travels: Oblivion* (2006, Java ME)
+— in Rust, validated byte-for-byte against the original bytecode.**
 
-This repository delivers milestones **M0 → M13** — the whole game, per-beat
-byte-validated end to end. Current state, and what is left, live in `HANDOFF.md`.
+*Oblivion Mobile* was an isometric action-RPG released for J2ME feature phones in
+2006 by Vir2L Studios. OpenOBM is a compatibility-first rewrite of its engine:
+the whole game, from the prison cell to the end credits, ported and **per-beat
+byte-validated** against the original.
+
+No prior reimplementation of this title is known. The closest comparable work in
+the *Travels* series is [Shadowkey-RE][sk] — a different game, and data
+extraction rather than a playable port.
+
+> **OpenOBM ships no game data.** Running it requires your own legally obtained
+> copy of the original. See [Supplying the game data](#supplying-the-game-data).
+
+[sk]: https://github.com/minexew/Shadowkey-RE
+
+## What "byte-validated" means here
+
+Correctness is anchored to the **original binary's computation** — captured into
+byte-comparable fixtures and frozen into automated tests, never to hand
+judgement. Two independent faithful ports (this Rust one and a JVM transcription)
+agreeing byte-for-byte across every real asset is the cross-check; where behavior
+is runtime-coupled, the original `.jar` itself runs headless on FreeJ2ME and its
+LCD frames are diffed pixel-exact.
+
+This repository delivers milestones **M0 → M13** — the whole game, end to end.
+Current state, and what is left, live in `HANDOFF.md`.
 
 ## Workspace layout
 
@@ -23,10 +43,65 @@ crates/
     vm.rs        .scr bytecode VM skeleton (79-opcode decoder + control flow)
   eso-tools/   `eso-dump` — byte-comparable canonical dumps + scr-coverage
   render/      debug isometric map renderer behind a `Renderer` trait
+  game/        the ported `b.java` shell — modes, menus, gameplay, save/load
 oracle/        OracleDump.java — original loader algorithms, as ground truth
-tests/fixtures/  rust/ and oracle/ canonical dumps (the mechanical diff)
-artifacts/     rendered PNG screenshots
+               patches/ — instrumented FreeJ2ME sources (GPLv3, see NOTICE.md)
+docs/          how it was built, what to play-test, what remains
+tools/         extract-assets.{ps1,sh} — unpack your jar into assets/
+
+# NOT in this repo — you create these locally (see below):
+assets/          your extracted game data
+tests/fixtures/  regenerated oracle dumps + captured frames
+artifacts/       rendered screenshots
 ```
+
+## Supplying the game data
+
+OpenOBM is an engine. It contains no assets, no string tables, no sprites and no
+disassembly — `.gitignore` blocks all of them, and nothing of the sort exists
+anywhere in this repository's history.
+
+To get to a working tree you need:
+
+1. **The original MIDlet** (`Oblivion.jar`), from your own copy of the game.
+2. **Its resources unpacked into `assets/`.** A `.jar` is a zip and the game's
+   resources sit at its root, so this is just an unzip with the Java classes
+   dropped. There is a script for it:
+
+   ```sh
+   pwsh tools/extract-assets.ps1 path/to/Oblivion.jar   # Windows
+   sh   tools/extract-assets.sh  path/to/Oblivion.jar   # Linux/macOS (needs unzip)
+   ```
+
+   Both write to `assets/` and expect ~112 resource files. No installer, no
+   wizard, no config file — the engine reads whichever directory you point it at.
+3. **The fixtures regenerated** from those assets, via the oracle:
+
+   ```sh
+   mkdir -p tests/fixtures/oracle
+   cd oracle && javac OracleDump.java
+   java OracleDump jtm  ../assets > ../tests/fixtures/oracle/jtm_canonical.txt
+   java OracleDump lang ../assets > ../tests/fixtures/oracle/lang_canonical.txt
+   java OracleDump scr  ../assets > ../tests/fixtures/oracle/scr_canonical.txt
+   ```
+
+   `oracle/README.md` documents the full set, including the FreeJ2ME runtime
+   oracle behind frame parity.
+
+   The `lang` golden snapshot is deliberately absent — it would be a verbatim
+   copy of the game's writing. On your first `cargo test` with assets present,
+   `insta` generates it locally and asks you to accept it (`cargo insta
+   accept`); it stays ignored by git.
+
+Without these the crates still build and the pure-logic tests still pass; the
+fixture-gated suites fail for want of their inputs.
+
+## Legal
+
+Unofficial and non-commercial. Not affiliated with, endorsed by, or approved by
+ZeniMax Media, Bethesda Softworks, or Vir2L Studios. Engine and documentation are
+dual-licensed **MIT OR Apache-2.0**; `oracle/patches/` is **GPLv3**. Trademarks,
+the no-game-data guarantee, and the full licensing picture: **`NOTICE.md`**.
 
 ## The oracle (how correctness is established)
 
@@ -126,7 +201,7 @@ ships zero audio assets, and the menu build never surfaces the vestigial
 by `tests/sound_toggle.rs`). A 1:1 port of a silent game is silent — audio
 is out of scope by *fidelity*, not omission. See `docs/road-to-1.0.md`.
 
-## Verified corrections to `spec.txt`
+## Verified corrections to the original porting brief
 
 Checked against the decompiled source / bytecode (the spec said to trust but verify):
 

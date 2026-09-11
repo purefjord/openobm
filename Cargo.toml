@@ -19,7 +19,7 @@ render = { path = "crates/render" }
 anyhow = "1"
 
 # Java ME has silent integer wraparound; we want that to surface as a test panic
-# during the port, not as a wrong pixel later (see GOAL.md section 9). Each site
+# during the port, not as a wrong pixel later (the original brief, §9). Each site
 # that genuinely relies on wrapping must use wrapping_* / explicit casts.
 [profile.dev]
 overflow-checks = true

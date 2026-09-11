@@ -1,10 +1,51 @@
+# ---------------------------------------------------------------------------
+# PUBLISH TRIPWIRE — game-derived content. NEVER COMMIT ANY OF THIS.
+#
+# OpenOBM ships as an engine only. These paths hold material derived from the
+# original game (its data files, its writing, its rendered output, its
+# disassembly). They are expected to EXIST on your disk — the test suite and
+# the oracle both read them — but they must never enter git history.
+#
+# If you find yourself reaching for `git add -f` on one of these, stop.
+# See NOTICE.md.
+# ---------------------------------------------------------------------------
+
+# The extracted game assets: .jtm maps, .scr scripts, .cml models, lang_*.txt
+# string tables, sprite PNGs, and the javap disassembly of the original classes.
+/assets/
+
+# Canonical oracle dumps + captured real-LCD frames. These re-express the
+# original's data and rendered output; regenerate them locally instead
+# (see README "Supplying the game data").
+/tests/fixtures/
+
+# Rendered screenshots and montages of original game content.
+/artifacts/
+
+# Corpora lifted from the original's string table.
+/oracle/text_corpus.txt
+/oracle/width_corpus.txt
+
+# Verbatim dump of the game's complete string table.
+/crates/eso-tools/tests/snapshots/golden__lang_dump.snap
+
+# The original MIDlet itself, in any form.
+*.jar
+*.jad
+*.class
+Oblivion*
+OBMobile*
+
+# ---------------------------------------------------------------------------
+# Ordinary build + runtime state
+# ---------------------------------------------------------------------------
 /target
 **/*.rs.bk
 Cargo.lock.bak
+
 # Oracle build artifacts
 /oracle/freej2me
-/oracle/*.jar
-*.class
+
 # runtime RecordStore state (pinned-empty baseline; never commit)
 /oracle/rms
 /oracle/rms.bak-pre-recon
