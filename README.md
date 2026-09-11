@@ -17,6 +17,14 @@ extraction rather than a playable port.
   <em>The Imperial City Prison — OpenOBM, at the original 240&times;320.</em>
 </p>
 
+<p align="center">
+  <img src="screenshots/kvatch-full-level.png" alt="The whole of Kvatch rendered in one image by the levelmap tool" width="640">
+  <br>
+  <em>Kvatch, burning — the <strong>entire</strong> level in one image. The original
+  only ever drew a 240&times;320 window onto this; <code>levelmap</code> loads the
+  level through its real scripts and draws the whole thing.</em>
+</p>
+
 > **OpenOBM ships no game data.** Running it requires your own legally obtained
 > copy of the original. See [Supplying the game data](#supplying-the-game-data).
 
