@@ -3,6 +3,9 @@
 An experimental Rust reimplementation of the engine for *The Elder Scrolls
 Travels: Oblivion* (2006, Java ME).
 
+The inspected MIDlet credits Superscape in its vendor and build-system manifest
+fields. Its in-game copyright notice names Vir2L Studios and Bethesda Softworks.
+
 > **Development preview:** the public source builds, but playing currently also
 > requires an unpublished text-mask file. Extracting your own game archive is
 > not sufficient to run `play`, `levelmap`, or `mapforge`. A reproducible public
@@ -105,6 +108,12 @@ this repository. The default public tests exercise synthetic, data-free cases.
 | `crates/game` | Menus, gameplay shell, save/load, and interactive frontend |
 | `tests/drives` | Input sequences used for development comparisons |
 | `tools` | Resource extraction and publication checks |
+
+## Audio observations
+
+The development notes report no audio assets or media API references in the
+inspected game archive. Its manifest declares `MIDP-1.0`. OpenOBM currently has no
+audio output. These observations apply to the inspected build.
 
 ## Experimental tools
 
