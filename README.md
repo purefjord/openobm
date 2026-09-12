@@ -7,8 +7,8 @@ The inspected MIDlet credits Superscape in its vendor and build-system manifest
 fields. Its in-game copyright notice names Vir2L Studios and Bethesda Softworks.
 
 > **Development preview:** you can play using your own game archive and the
-> bundled open fonts. No private text-mask file or emulator setup is required.
-> A complete human playthrough is still pending; bugs and softlocks may remain.
+> bundled open fonts.
+> I haven't yet fully played the game fully so bugs and softlocks may remain.
 
 <p align="center">
   <img src="screenshots/gameplay.png" alt="The Imperial City Prison running in OpenOBM at 240x320" width="240">
@@ -20,12 +20,8 @@ fields. Its in-game copyright notice names Vir2L Studios and Bethesda Softworks.
 
 The engine implements the game's parsers, rendering, menus, gameplay loop, and
 save/load support. Development tests compared selected outputs with reference
-captures from the original game. **A complete human playthrough is still
-pending.** Untested paths may contain bugs or softlocks.
-
-The original game archive, extracted resource pack, and captured reference
-fixtures are not distributed. The demonstration screenshots depict original
-game content; see [NOTICE.md](NOTICE.md).
+captures from the original game. 
+The demonstration screenshots depict original game content; see [NOTICE.md](NOTICE.md).
 
 ## Build and test
 
